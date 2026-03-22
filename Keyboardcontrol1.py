@@ -15,7 +15,7 @@ FONT_SCALE = 0.5
 FONT_COLOR = (0, 0, 255)          # 红色
 LINE_THICKNESS = 1
 
-# 我在这里加了一个注释
+
 def getKeyboardInput(drone, speed, image):
     """
     检测键盘按键，计算RC控制指令，并在图像上叠加信息。
