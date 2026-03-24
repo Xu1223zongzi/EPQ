@@ -1,4 +1,9 @@
+import argparse
+import csv
+import json
 import time
+from datetime import datetime
+from pathlib import Path
 
 import cv2
 from djitellopy import Tello
@@ -12,10 +17,19 @@ MAX_YAW_SPEED = 45
 MAX_UP_DOWN_SPEED = 35
 MAX_FORWARD_BACK_SPEED = 30
 MIN_BOX_SIZE = 20
+OUTPUT_FPS = 20.0
 
 
 def clamp(value, low, high):
     return max(low, min(high, int(value)))
+
+
+def parse_video_source(value):
+    if value is None:
+        return None
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
 
 
 def create_kcf_tracker():
@@ -26,14 +40,225 @@ def create_kcf_tracker():
     raise RuntimeError("当前 OpenCV 不支持 KCF，请安装 opencv-contrib-python。")
 
 
+class ExperimentRecorder:
+    def __init__(self, output_dir, save_video):
+        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        self.run_dir = Path(output_dir) / run_name
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+
+        self.csv_path = self.run_dir / "telemetry.csv"
+        self.summary_path = self.run_dir / "summary.json"
+        self.video_path = self.run_dir / "overlay.mp4" if save_video else None
+        self.csv_file = self.csv_path.open("w", newline="", encoding="utf-8-sig")
+        self.writer = csv.DictWriter(
+            self.csv_file,
+            fieldnames=[
+                "timestamp",
+                "frame_index",
+                "source_mode",
+                "event",
+                "tracking_active",
+                "tracker_ok",
+                "bbox_x",
+                "bbox_y",
+                "bbox_w",
+                "bbox_h",
+                "error_x",
+                "error_y",
+                "area_ratio",
+                "planned_lr",
+                "planned_fb",
+                "planned_ud",
+                "planned_yaw",
+                "sent_lr",
+                "sent_fb",
+                "sent_ud",
+                "sent_yaw",
+                "flying",
+                "battery_level",
+                "processing_ms",
+            ],
+        )
+        self.writer.writeheader()
+        self.video_writer = None
+        self.total_frames = 0
+        self.tracking_frames = 0
+        self.tracker_update_frames = 0
+        self.tracker_success_frames = 0
+        self.frames_with_bbox = 0
+        self.total_processing_ms = 0.0
+        self.max_processing_ms = 0.0
+        self.total_abs_error_x = 0.0
+        self.total_abs_error_y = 0.0
+        self.max_abs_error_x = 0.0
+        self.max_abs_error_y = 0.0
+        self.total_area_ratio = 0.0
+        self.area_ratio_count = 0
+        self.command_activity_frames = 0
+        self.event_counts = {}
+
+    def log_frame(
+        self,
+        frame_index,
+        source_mode,
+        event,
+        tracking_active,
+        tracker_ok,
+        bbox,
+        metrics,
+        planned_command,
+        sent_command,
+        flying,
+        battery_level,
+        processing_ms,
+    ):
+        bbox = bbox or (None, None, None, None)
+        metrics = metrics or {}
+        self.total_frames += 1
+        self.total_processing_ms += processing_ms
+        self.max_processing_ms = max(self.max_processing_ms, processing_ms)
+
+        if tracking_active:
+            self.tracking_frames += 1
+
+        if tracker_ok is not None:
+            self.tracker_update_frames += 1
+            if tracker_ok:
+                self.tracker_success_frames += 1
+
+        if bbox[0] is not None:
+            self.frames_with_bbox += 1
+
+        error_x = metrics.get("error_x")
+        if error_x is not None:
+            abs_error_x = abs(float(error_x))
+            self.total_abs_error_x += abs_error_x
+            self.max_abs_error_x = max(self.max_abs_error_x, abs_error_x)
+
+        error_y = metrics.get("error_y")
+        if error_y is not None:
+            abs_error_y = abs(float(error_y))
+            self.total_abs_error_y += abs_error_y
+            self.max_abs_error_y = max(self.max_abs_error_y, abs_error_y)
+
+        area_ratio = metrics.get("area_ratio")
+        if area_ratio is not None:
+            self.total_area_ratio += float(area_ratio)
+            self.area_ratio_count += 1
+
+        if any(sent_command):
+            self.command_activity_frames += 1
+
+        if event:
+            for event_name in event.split(","):
+                if not event_name:
+                    continue
+                self.event_counts[event_name] = self.event_counts.get(event_name, 0) + 1
+
+        self.writer.writerow(
+            {
+                "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+                "frame_index": frame_index,
+                "source_mode": source_mode,
+                "event": event,
+                "tracking_active": tracking_active,
+                "tracker_ok": tracker_ok,
+                "bbox_x": bbox[0],
+                "bbox_y": bbox[1],
+                "bbox_w": bbox[2],
+                "bbox_h": bbox[3],
+                "error_x": metrics.get("error_x"),
+                "error_y": metrics.get("error_y"),
+                "area_ratio": metrics.get("area_ratio"),
+                "planned_lr": planned_command[0],
+                "planned_fb": planned_command[1],
+                "planned_ud": planned_command[2],
+                "planned_yaw": planned_command[3],
+                "sent_lr": sent_command[0],
+                "sent_fb": sent_command[1],
+                "sent_ud": sent_command[2],
+                "sent_yaw": sent_command[3],
+                "flying": flying,
+                "battery_level": battery_level,
+                "processing_ms": round(processing_ms, 3),
+            }
+        )
+        self.csv_file.flush()
+
+    def build_summary(self):
+        average_processing_ms = self.total_processing_ms / self.total_frames if self.total_frames else 0.0
+        average_abs_error_x = self.total_abs_error_x / self.frames_with_bbox if self.frames_with_bbox else 0.0
+        average_abs_error_y = self.total_abs_error_y / self.frames_with_bbox if self.frames_with_bbox else 0.0
+        average_area_ratio = self.total_area_ratio / self.area_ratio_count if self.area_ratio_count else 0.0
+        tracking_ratio = self.tracking_frames / self.total_frames if self.total_frames else 0.0
+        command_activity_ratio = self.command_activity_frames / self.total_frames if self.total_frames else 0.0
+        tracker_success_ratio = (
+            self.tracker_success_frames / self.tracker_update_frames if self.tracker_update_frames else 0.0
+        )
+
+        return {
+            "run_dir": str(self.run_dir),
+            "csv_path": str(self.csv_path),
+            "video_path": str(self.video_path) if self.video_path is not None else None,
+            "total_frames": self.total_frames,
+            "frames_with_bbox": self.frames_with_bbox,
+            "tracking_frames": self.tracking_frames,
+            "tracker_update_frames": self.tracker_update_frames,
+            "tracker_success_frames": self.tracker_success_frames,
+            "tracking_ratio": round(tracking_ratio, 6),
+            "tracker_success_ratio": round(tracker_success_ratio, 6),
+            "command_activity_frames": self.command_activity_frames,
+            "command_activity_ratio": round(command_activity_ratio, 6),
+            "average_processing_ms": round(average_processing_ms, 3),
+            "max_processing_ms": round(self.max_processing_ms, 3),
+            "average_abs_error_x": round(average_abs_error_x, 3),
+            "average_abs_error_y": round(average_abs_error_y, 3),
+            "max_abs_error_x": round(self.max_abs_error_x, 3),
+            "max_abs_error_y": round(self.max_abs_error_y, 3),
+            "average_area_ratio": round(average_area_ratio, 6),
+            "event_counts": self.event_counts,
+        }
+
+    def write_frame(self, frame):
+        if self.video_path is None or frame is None:
+            return
+
+        if self.video_writer is None:
+            frame_height, frame_width = frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            self.video_writer = cv2.VideoWriter(
+                str(self.video_path), fourcc, OUTPUT_FPS, (frame_width, frame_height)
+            )
+
+        self.video_writer.write(frame)
+
+    def close(self):
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
+        self.csv_file.close()
+        summary = self.build_summary()
+        self.summary_path.write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return summary
+
+
 class TelloKCFTracker:
-    def __init__(self):
-        self.tello = Tello()
+    def __init__(self, video_source=None, output_dir="experiment_runs", save_video=False, no_fly=False):
+        self.video_source = parse_video_source(video_source)
+        self.use_tello = self.video_source is None
+        self.allow_flight = self.use_tello and not no_fly
+
+        self.tello = Tello() if self.use_tello else None
+        self.capture = None
         self.frame_reader = None
         self.current_frame = None
         self.display_frame = None
         self.battery_level = -1
         self.last_battery_update = 0.0
+        self.stream_finished = False
 
         self.tracker = None
         self.tracking_bbox = None
@@ -46,17 +271,39 @@ class TelloKCFTracker:
 
         self.flying = False
         self.last_rc = (0, 0, 0, 0)
+        self.frame_index = 0
+        self.target_lost_count = 0
+        self.recorder = ExperimentRecorder(output_dir=output_dir, save_video=save_video)
+        self.summary = None
+
+        print(f"实验输出目录: {self.recorder.run_dir}")
+        print(f"CSV 日志: {self.recorder.csv_path}")
+        print(f"统计摘要: {self.recorder.summary_path}")
+        if self.recorder.video_path is not None:
+            print(f"叠加视频: {self.recorder.video_path}")
 
     def connect(self):
-        self.tello.connect()
-        self.battery_level = self.tello.get_battery()
-        self.last_battery_update = time.time()
-        print(f"电池电量: {self.battery_level}%")
-        self.tello.streamon()
-        time.sleep(2)
-        self.frame_reader = self.tello.get_frame_read()
+        if self.use_tello:
+            self.tello.connect()
+            self.battery_level = self.tello.get_battery()
+            self.last_battery_update = time.time()
+            print(f"电池电量: {self.battery_level}%")
+            self.tello.streamon()
+            time.sleep(2)
+            self.frame_reader = self.tello.get_frame_read()
+            if not self.allow_flight:
+                print("当前为观测模式：不会向真机发送起飞或 RC 指令。")
+            return
+
+        self.capture = cv2.VideoCapture(self.video_source)
+        if not self.capture.isOpened():
+            raise RuntimeError(f"无法打开视频源: {self.video_source}")
+        print(f"已进入离线实验模式，视频源: {self.video_source}")
 
     def get_battery_level(self):
+        if not self.use_tello:
+            return -1
+
         now = time.time()
         if now - self.last_battery_update >= 5:
             try:
@@ -65,6 +312,29 @@ class TelloKCFTracker:
             except Exception:
                 pass
         return self.battery_level
+
+    def get_source_mode(self):
+        return "tello" if self.use_tello else "video"
+
+    def get_battery_text(self):
+        battery_level = self.get_battery_level()
+        return "N/A" if battery_level < 0 else f"{battery_level}%"
+
+    def get_tracking_metrics(self, bbox):
+        if bbox is None:
+            return {}
+
+        x, y, w, h = bbox
+        target_center_x = x + w / 2
+        target_center_y = y + h / 2
+        frame_center_x = FRAME_WIDTH / 2
+        frame_center_y = FRAME_HEIGHT / 2
+
+        return {
+            "error_x": round(target_center_x - frame_center_x, 3),
+            "error_y": round(target_center_y - frame_center_y, 3),
+            "area_ratio": round((w * h) / self.reference_area, 6) if self.reference_area else 1.0,
+        }
 
     def reset_tracking(self, stop_motion=False):
         self.tracker = None
@@ -78,13 +348,19 @@ class TelloKCFTracker:
         command = (int(lr), int(fb), int(ud), int(yaw))
         if command == self.last_rc:
             return
-        self.tello.send_rc_control(*command)
+        if self.use_tello and self.allow_flight:
+            self.tello.send_rc_control(*command)
         self.last_rc = command
 
     def takeoff(self):
         if self.flying:
             return
-        self.tello.takeoff()
+        if self.use_tello and self.allow_flight:
+            self.tello.takeoff()
+        elif self.use_tello:
+            print("观测模式：已模拟起飞状态，但未向真机发送起飞命令。")
+        else:
+            print("离线实验模式：已进入模拟飞行状态。")
         self.flying = True
         self.send_rc(0, 0, 0, 0)
         print("起飞成功")
@@ -93,7 +369,12 @@ class TelloKCFTracker:
         if not self.flying:
             return
         self.send_rc(0, 0, 0, 0)
-        self.tello.land()
+        if self.use_tello and self.allow_flight:
+            self.tello.land()
+        elif self.use_tello:
+            print("观测模式：已模拟降落状态，但未向真机发送降落命令。")
+        else:
+            print("离线实验模式：已结束模拟飞行状态。")
         self.flying = False
         self.reset_tracking(stop_motion=False)
         print("降落成功")
@@ -147,23 +428,26 @@ class TelloKCFTracker:
             self.start_tracking((left, top, width, height))
 
     def read_frame(self):
-        frame = self.frame_reader.frame
-        if frame is None:
-            return False
+        if self.use_tello:
+            frame = self.frame_reader.frame
+            if frame is None:
+                return False
+        else:
+            ok, frame = self.capture.read()
+            if not ok or frame is None:
+                self.stream_finished = True
+                return False
+
         self.current_frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
         self.display_frame = self.current_frame.copy()
+        self.frame_index += 1
         return True
 
     def compute_auto_rc(self, bbox):
-        x, y, w, h = bbox
-        target_center_x = x + w / 2
-        target_center_y = y + h / 2
-        frame_center_x = FRAME_WIDTH / 2
-        frame_center_y = FRAME_HEIGHT / 2
-
-        error_x = target_center_x - frame_center_x
-        error_y = target_center_y - frame_center_y
-        area_ratio = (w * h) / self.reference_area if self.reference_area else 1.0
+        metrics = self.get_tracking_metrics(bbox)
+        error_x = metrics.get("error_x", 0.0)
+        error_y = metrics.get("error_y", 0.0)
+        area_ratio = metrics.get("area_ratio", 1.0)
 
         yaw = 0
         ud = 0
@@ -180,7 +464,7 @@ class TelloKCFTracker:
         elif area_ratio > 1.18:
             fb = clamp(-(area_ratio - 1.0) * 90, -MAX_FORWARD_BACK_SPEED, -10)
 
-        return 0, fb, ud, yaw
+        return (0, fb, ud, yaw), metrics
 
     def draw_overlay(self, manual_mode=False):
         cv2.line(self.display_frame, (FRAME_WIDTH // 2 - 15, FRAME_HEIGHT // 2),
@@ -193,9 +477,10 @@ class TelloKCFTracker:
             status = "MANUAL"
 
         lines = [
-            f"Battery: {self.get_battery_level()}%",
+            f"Battery: {self.get_battery_text()}",
             f"Flight: {'ON' if self.flying else 'OFF'}",
             f"Mode: {status}",
+            f"Source: {self.get_source_mode()}  Frame: {self.frame_index}",
             "t takeoff | x land | r reset | q quit",
             "i/k forward/back | j/l left/right | w/s up/down | a/d turn",
             "Drag mouse to select target",
@@ -222,7 +507,10 @@ class TelloKCFTracker:
             cv2.rectangle(self.display_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
     def run(self):
-        print("请先连接 Tello WiFi。")
+        if self.use_tello:
+            print("请先连接 Tello WiFi。")
+        else:
+            print("当前运行在离线视频实验模式。")
         print("操作说明:")
         print("  t: 起飞")
         print("  x: 降落")
@@ -234,37 +522,49 @@ class TelloKCFTracker:
         cv2.setMouseCallback(WINDOW_NAME, self.mouse_callback)
 
         while True:
+            loop_started_at = time.perf_counter()
             if not self.read_frame():
+                if self.stream_finished:
+                    print("视频输入结束。")
+                    break
                 continue
 
             manual_mode = False
             rc_command = (0, 0, 0, 0)
+            metrics = {}
+            tracking_ok = None
+            events = []
 
             if self.tracking_active and self.tracker is not None:
                 ok, bbox = self.tracker.update(self.current_frame)
+                tracking_ok = ok
                 if ok:
                     self.tracking_bbox = tuple(int(v) for v in bbox)
-                    rc_command = self.compute_auto_rc(self.tracking_bbox)
+                    rc_command, metrics = self.compute_auto_rc(self.tracking_bbox)
                 else:
                     print("目标丢失，请重新框选。")
+                    self.target_lost_count += 1
+                    events.append("target_lost")
                     self.reset_tracking(stop_motion=True)
 
             self.draw_overlay(manual_mode=manual_mode)
             cv2.imshow(WINDOW_NAME, self.display_frame)
 
             key = cv2.waitKey(1) & 0xFF
+            should_quit = False
             if key == ord('q'):
-                break
-            if key == ord('t'):
+                events.append("quit")
+                should_quit = True
+            elif key == ord('t'):
                 self.takeoff()
-                continue
-            if key == ord('x'):
+                events.append("takeoff")
+            elif key == ord('x'):
                 self.land()
-                continue
-            if key == ord('r'):
+                events.append("land")
+            elif key == ord('r'):
                 self.reset_tracking(stop_motion=True)
                 print("已清除当前目标。")
-                continue
+                events.append("reset_tracking")
 
             manual_commands = {
                 ord('j'): (-MANUAL_SPEED, 0, 0, 0),
@@ -281,31 +581,101 @@ class TelloKCFTracker:
             if key in manual_commands:
                 manual_mode = True
                 rc_command = manual_commands[key]
+                metrics = self.get_tracking_metrics(self.tracking_bbox)
+                events.append(f"manual_{chr(key)}")
                 self.draw_overlay(manual_mode=manual_mode)
                 cv2.imshow(WINDOW_NAME, self.display_frame)
 
             if self.flying:
                 self.send_rc(*rc_command)
 
+            processing_ms = (time.perf_counter() - loop_started_at) * 1000
+            self.recorder.log_frame(
+                frame_index=self.frame_index,
+                source_mode=self.get_source_mode(),
+                event=",".join(events),
+                tracking_active=self.tracking_active,
+                tracker_ok=tracking_ok,
+                bbox=self.tracking_bbox,
+                metrics=metrics,
+                planned_command=rc_command,
+                sent_command=self.last_rc,
+                flying=self.flying,
+                battery_level=self.get_battery_level(),
+                processing_ms=processing_ms,
+            )
+            self.recorder.write_frame(self.display_frame)
+
+            if should_quit:
+                break
+
     def close(self):
         try:
             if self.flying:
                 self.send_rc(0, 0, 0, 0)
-                self.tello.land()
+                if self.use_tello and self.allow_flight:
+                    self.tello.land()
         finally:
             try:
-                self.tello.streamoff()
+                if self.use_tello:
+                    self.tello.streamoff()
             except Exception:
                 pass
             try:
-                self.tello.end()
+                if self.use_tello:
+                    self.tello.end()
             except Exception:
                 pass
+            if self.capture is not None:
+                self.capture.release()
+            self.summary = self.recorder.close()
             cv2.destroyAllWindows()
+
+        print(f"总帧数: {self.frame_index}")
+        print(f"目标丢失次数: {self.target_lost_count}")
+        print(f"实验结果目录: {self.recorder.run_dir}")
+        print(f"统计摘要文件: {self.recorder.summary_path}")
+        if self.summary is not None:
+            print(f"平均处理耗时: {self.summary['average_processing_ms']} ms")
+            print(f"最大处理耗时: {self.summary['max_processing_ms']} ms")
+            print(f"平均横向误差: {self.summary['average_abs_error_x']} px")
+            print(f"平均纵向误差: {self.summary['average_abs_error_y']} px")
+            print(f"跟踪更新成功率: {self.summary['tracker_success_ratio']:.2%}")
+
+
+def build_argument_parser():
+    parser = argparse.ArgumentParser(description="Tello KCF 跟踪实验脚本")
+    parser.add_argument(
+        "--video-source",
+        default=None,
+        help="离线视频源，可填写视频文件路径或摄像头索引；留空则连接 Tello 真机。",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="experiment_runs",
+        help="实验结果输出目录，默认保存在 experiment_runs 下。",
+    )
+    parser.add_argument(
+        "--save-video",
+        action="store_true",
+        help="保存叠加了跟踪框和状态信息的输出视频。",
+    )
+    parser.add_argument(
+        "--no-fly",
+        action="store_true",
+        help="连接真机但不发送起飞和 RC 指令，仅做观测和日志采集。",
+    )
+    return parser
 
 
 def main():
-    app = TelloKCFTracker()
+    args = build_argument_parser().parse_args()
+    app = TelloKCFTracker(
+        video_source=args.video_source,
+        output_dir=args.output_dir,
+        save_video=args.save_video,
+        no_fly=args.no_fly,
+    )
     try:
         app.connect()
         app.run()
