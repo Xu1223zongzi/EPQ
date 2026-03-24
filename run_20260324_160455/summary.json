@@ -1,0 +1,24 @@
+{
+  "run_dir": "experiment_runs\\run_20260324_160455",
+  "csv_path": "experiment_runs\\run_20260324_160455\\telemetry.csv",
+  "video_path": null,
+  "total_frames": 2484,
+  "frames_with_bbox": 1336,
+  "tracking_frames": 1336,
+  "tracker_update_frames": 1336,
+  "tracker_success_frames": 1335,
+  "tracking_ratio": 0.537842,
+  "tracker_success_ratio": 0.999251,
+  "command_activity_frames": 0,
+  "command_activity_ratio": 0.0,
+  "average_processing_ms": 22.089,
+  "max_processing_ms": 1009.308,
+  "average_abs_error_x": 60.519,
+  "average_abs_error_y": 78.672,
+  "max_abs_error_x": 284.0,
+  "max_abs_error_y": 160.5,
+  "average_area_ratio": 0.979955,
+  "event_counts": {
+    "target_lost": 1
+  }
+}

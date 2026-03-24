@@ -259,6 +259,9 @@ class TelloKCFTracker:
         self.battery_level = -1
         self.last_battery_update = 0.0
         self.stream_finished = False
+        self.video_paused = False
+        self.video_pause_reason = ""
+        self.video_frame_interval = 0.0
 
         self.tracker = None
         self.tracking_bbox = None
@@ -298,7 +301,32 @@ class TelloKCFTracker:
         self.capture = cv2.VideoCapture(self.video_source)
         if not self.capture.isOpened():
             raise RuntimeError(f"无法打开视频源: {self.video_source}")
+        fps = float(self.capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        if fps > 1e-6:
+            self.video_frame_interval = 1.0 / fps
+        self.video_paused = True
+        self.video_pause_reason = "waiting_for_selection"
+        if not self._read_next_video_frame():
+            raise RuntimeError(f"视频源可打开，但无法读取首帧: {self.video_source}")
         print(f"已进入离线实验模式，视频源: {self.video_source}")
+        if self.video_frame_interval > 0:
+            print(f"检测到视频帧率: {1.0 / self.video_frame_interval:.2f} FPS")
+        print("视频已暂停在首帧，请先框选目标；框选成功后将自动开始播放。")
+
+    def _set_frame(self, frame, count_frame=True):
+        self.current_frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+        self.display_frame = self.current_frame.copy()
+        if count_frame:
+            self.frame_index += 1
+
+    def _read_next_video_frame(self):
+        ok, frame = self.capture.read()
+        if not ok or frame is None:
+            self.stream_finished = True
+            return False
+
+        self._set_frame(frame)
+        return True
 
     def get_battery_level(self):
         if not self.use_tello:
@@ -398,6 +426,10 @@ class TelloKCFTracker:
         self.tracking_bbox = bbox
         self.reference_area = w * h
         self.tracking_active = True
+        if not self.use_tello and self.video_pause_reason == "waiting_for_selection":
+            self.video_paused = False
+            self.video_pause_reason = ""
+            print("已完成框选，开始播放视频。")
         print("目标已锁定，开始自动跟随。")
         return True
 
@@ -432,16 +464,13 @@ class TelloKCFTracker:
             frame = self.frame_reader.frame
             if frame is None:
                 return False
-        else:
-            ok, frame = self.capture.read()
-            if not ok or frame is None:
-                self.stream_finished = True
-                return False
+            self._set_frame(frame)
+            return True
 
-        self.current_frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-        self.display_frame = self.current_frame.copy()
-        self.frame_index += 1
-        return True
+        if self.video_paused:
+            return self.current_frame is not None
+
+        return self._read_next_video_frame()
 
     def compute_auto_rc(self, bbox):
         metrics = self.get_tracking_metrics(bbox)
@@ -475,6 +504,8 @@ class TelloKCFTracker:
         status = "TRACKING" if self.tracking_active else "IDLE"
         if manual_mode:
             status = "MANUAL"
+        if not self.use_tello and self.video_paused:
+            status = "PAUSED"
 
         lines = [
             f"Battery: {self.get_battery_text()}",
@@ -485,6 +516,11 @@ class TelloKCFTracker:
             "i/k forward/back | j/l left/right | w/s up/down | a/d turn",
             "Drag mouse to select target",
         ]
+
+        if not self.use_tello:
+            lines.append("p pause/resume")
+            if self.video_pause_reason == "waiting_for_selection":
+                lines.append("Video paused: select a target to begin playback")
 
         for index, text in enumerate(lines):
             cv2.putText(
@@ -555,6 +591,11 @@ class TelloKCFTracker:
             if key == ord('q'):
                 events.append("quit")
                 should_quit = True
+            elif key == ord('p') and not self.use_tello:
+                self.video_paused = not self.video_paused
+                self.video_pause_reason = "manual_pause" if self.video_paused else ""
+                print("视频已暂停。" if self.video_paused else "视频已继续播放。")
+                events.append("pause" if self.video_paused else "resume")
             elif key == ord('t'):
                 self.takeoff()
                 events.append("takeoff")
@@ -605,6 +646,11 @@ class TelloKCFTracker:
                 processing_ms=processing_ms,
             )
             self.recorder.write_frame(self.display_frame)
+
+            if not self.use_tello and not self.video_paused and self.video_frame_interval > 0:
+                remaining = self.video_frame_interval - (time.perf_counter() - loop_started_at)
+                if remaining > 0:
+                    time.sleep(remaining)
 
             if should_quit:
                 break
