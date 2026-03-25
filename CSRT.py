@@ -246,10 +246,20 @@ class ExperimentRecorder:
 
 
 class TelloCSRTTracker:
-	def __init__(self, video_source=None, output_dir="experiment_runs", save_video=False, no_fly=False):
+	def __init__(
+		self,
+		video_source=None,
+		output_dir="experiment_runs",
+		save_video=False,
+		no_fly=False,
+		target_area_ratio=1.0,
+		target_y_offset=0.0,
+	):
 		self.video_source = parse_video_source(video_source)
 		self.use_tello = self.video_source is None
 		self.allow_flight = self.use_tello and not no_fly
+		self.target_area_ratio = float(target_area_ratio)
+		self.target_y_offset = float(target_y_offset)
 
 		self.tello = Tello() if self.use_tello else None
 		self.capture = None
@@ -356,11 +366,11 @@ class TelloCSRTTracker:
 		target_center_x = x + w / 2
 		target_center_y = y + h / 2
 		frame_center_x = FRAME_WIDTH / 2
-		frame_center_y = FRAME_HEIGHT / 2
+		desired_center_y = FRAME_HEIGHT / 2 + self.target_y_offset
 
 		return {
 			"error_x": round(target_center_x - frame_center_x, 3),
-			"error_y": round(target_center_y - frame_center_y, 3),
+			"error_y": round(target_center_y - desired_center_y, 3),
 			"area_ratio": round((w * h) / self.reference_area, 6) if self.reference_area else 1.0,
 		}
 
@@ -477,6 +487,8 @@ class TelloCSRTTracker:
 		error_x = metrics.get("error_x", 0.0)
 		error_y = metrics.get("error_y", 0.0)
 		area_ratio = metrics.get("area_ratio", 1.0)
+		area_error = self.target_area_ratio - area_ratio
+		area_deadband = max(0.08, self.target_area_ratio * 0.12)
 
 		yaw = 0
 		ud = 0
@@ -488,10 +500,10 @@ class TelloCSRTTracker:
 		if abs(error_y) > 30:
 			ud = clamp(-error_y * 0.20, -MAX_UP_DOWN_SPEED, MAX_UP_DOWN_SPEED)
 
-		if area_ratio < 0.85:
-			fb = clamp((1.0 - area_ratio) * 90, 10, MAX_FORWARD_BACK_SPEED)
-		elif area_ratio > 1.18:
-			fb = clamp(-(area_ratio - 1.0) * 90, -MAX_FORWARD_BACK_SPEED, -10)
+		if area_error > area_deadband:
+			fb = clamp(area_error * 90, 10, MAX_FORWARD_BACK_SPEED)
+		elif area_error < -area_deadband:
+			fb = clamp(area_error * 90, -MAX_FORWARD_BACK_SPEED, -10)
 
 		return (0, fb, ud, yaw), metrics
 
@@ -500,6 +512,8 @@ class TelloCSRTTracker:
 				 (FRAME_WIDTH // 2 + 15, FRAME_HEIGHT // 2), (255, 255, 0), 1)
 		cv2.line(self.display_frame, (FRAME_WIDTH // 2, FRAME_HEIGHT // 2 - 15),
 				 (FRAME_WIDTH // 2, FRAME_HEIGHT // 2 + 15), (255, 255, 0), 1)
+		desired_center_y = int(FRAME_HEIGHT / 2 + self.target_y_offset)
+		cv2.line(self.display_frame, (0, desired_center_y), (FRAME_WIDTH, desired_center_y), (0, 165, 255), 1)
 
 		status = "TRACKING" if self.tracking_active else "IDLE"
 		if manual_mode:
@@ -512,6 +526,7 @@ class TelloCSRTTracker:
 			f"Flight: {'ON' if self.flying else 'OFF'}",
 			f"Mode: {status}",
 			f"Source: {self.get_source_mode()}  Frame: {self.frame_index}",
+			f"Target distance ratio: {self.target_area_ratio:.2f}  y-offset: {self.target_y_offset:.0f}px",
 			"t takeoff | x land | r reset | q quit",
 			"i/k forward/back | j/l left/right | w/s up/down | a/d turn",
 			"Drag mouse to select target",
@@ -711,6 +726,18 @@ def build_argument_parser():
 		action="store_true",
 		help="连接真机但不发送起飞和 RC 指令，仅做观测和日志采集。",
 	)
+	parser.add_argument(
+		"--target-area-ratio",
+		type=float,
+		default=1.0,
+		help="相对初始框选面积的目标比例。1.0 表示保持框选时的距离，>1 更近，<1 更远。",
+	)
+	parser.add_argument(
+		"--target-y-offset",
+		type=float,
+		default=0.0,
+		help="目标相对画面中心的期望垂直偏移，单位像素。负值更高，正值更低。",
+	)
 	return parser
 
 
@@ -721,6 +748,8 @@ def main():
 		output_dir=args.output_dir,
 		save_video=args.save_video,
 		no_fly=args.no_fly,
+		target_area_ratio=args.target_area_ratio,
+		target_y_offset=args.target_y_offset,
 	)
 	try:
 		app.connect()
