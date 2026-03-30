@@ -1,0 +1,123 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{csquotes}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[
+	backend=biber,
+	style=authoryear,
+	sorting=nyt,
+	giveninits=true,
+	maxbibnames=99,
+	maxcitenames=2,
+	date=year,
+	doi=false,
+	isbn=false,
+	eprint=false,
+	url=true
+]{biblatex}
+
+\addbibresource{references.bib}
+
+\DefineBibliographyStrings{english}{
+	urlseen = {Accessed}
+}
+
+\DeclareFieldFormat{urldate}{#1}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=black,
+	citecolor=black,
+	urlcolor=blue
+}
+
+\lstdefinelanguage{MatlabCode}{
+	language=Matlab,
+	morekeywords={function,end,ifft2,fft2,real,conj,sum,exp,abs,numel}
+}
+
+\lstset{
+	language=MatlabCode,
+	basicstyle=\ttfamily\small,
+	keywordstyle=\bfseries,
+	commentstyle=\itshape,
+	columns=fullflexible,
+	keepspaces=true,
+	showstringspaces=false,
+	frame=none
+}
+
+\setstretch{1.5}
+
+\title{EPQ Title}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\chapter{Introduction}
+
+I chose this project because it connects well with subjects I already study, especially Physics and ICT. It lets me use what I have learnt in class in a more practical way, which makes the project more interesting and meaningful to me. I also like the idea of combining school knowledge with real life, rather than only learning theory.
+Another reason is that I want to improve my Python skills. I have already learnt some programming, and this project gives me a good chance to practise writing code, solving problems, and working more independently. I think these are useful skills for both future study and everyday life.
+I also chose this topic because tracking algorithms are already quite developed, so there are research papers and existing information I can look at. This makes it easier to understand the topic and compare different methods, while still giving me enough space to do my own investigation.
+
+
+\chapter{Main Discussion}
+
+Replace this text with your own content. Add each source to the bibliography file and cite it in the body of the report.
+
+\begin{table}[htbp]
+\centering
+\caption{Matlab code, with a Gaussian kernel}
+\label{tab:gaussian-kernel-code}
+\begin{tabular}{@{}p{0.92\textwidth}@{}}
+\toprule
+\textbf{Inputs} \\
+\quad $x$: training image patch, $m \times n \times c$ \\
+\quad $y$: regression target, Gaussian-shaped, $m \times n$ \\
+\quad $z$: test image patch, $m \times n \times c$ \\
+[0.4em]
+\textbf{Output} \\
+\quad responses: detection score for each location, $m \times n$ \\
+[0.6em]
+\begin{minipage}{0.90\textwidth}
+\begin{lstlisting}
+function alphaf = train(x, y, sigma, lambda)
+	k = kernel_correlation(x, x, sigma);
+	alphaf = fft2(y) ./ (fft2(k) + lambda);
+end
+
+function responses = detect(alphaf, x, z, sigma)
+	k = kernel_correlation(z, x, sigma);
+	responses = real(ifft2(alphaf .* fft2(k)));
+end
+
+function k = kernel_correlation(x1, x2, sigma)
+	c = ifft2(sum(conj(fft2(x1)) .* fft2(x2), 3));
+	d = x1(:)' * x1(:) + x2(:)' * x2(:) - 2 * c;
+	k = exp(-1 / sigma^2 * abs(d) / numel(d));
+end
+\end{lstlisting}
+\end{minipage} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\chapter{Conclusion}
+
+The key requirement for AQA is consistency. This template gives you a clean and repeatable structure for in-text citations and the final reference list.
+
+\printbibliography[title={References}]
+
+\end{document}

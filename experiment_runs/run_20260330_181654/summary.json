@@ -1,0 +1,30 @@
+{
+  "run_dir": "experiment_runs\\run_20260330_181654",
+  "csv_path": "experiment_runs\\run_20260330_181654\\telemetry.csv",
+  "video_path": "experiment_runs\\run_20260330_181654\\overlay.mp4",
+  "total_frames": 3085,
+  "frames_with_bbox": 15,
+  "tracking_frames": 15,
+  "tracker_update_frames": 16,
+  "tracker_success_frames": 15,
+  "tracking_ratio": 0.004862,
+  "tracker_success_ratio": 0.9375,
+  "command_activity_frames": 0,
+  "command_activity_ratio": 0.0,
+  "average_processing_ms": 6.964,
+  "max_processing_ms": 16.595,
+  "average_abs_error_x": 53.867,
+  "average_abs_error_y": 44.733,
+  "max_abs_error_x": 68.0,
+  "max_abs_error_y": 54.0,
+  "average_area_ratio": 1.0,
+  "benchmark_frames": 15,
+  "average_iou": 0.927743,
+  "average_center_error": 0.727687,
+  "success_rate_iou_0_5": 1.0,
+  "precision_20px": 1.0,
+  "event_counts": {
+    "auto_initialized": 1,
+    "target_lost": 1
+  }
+}
