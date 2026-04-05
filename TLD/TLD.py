@@ -4,12 +4,12 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from tracker_framework import TLDTrackerAdapter, run_tracker_app
+from tracker_framework import run_tracker_app_by_name
 
 
 def main():
-	run_tracker_app(TLDTrackerAdapter())
+    run_tracker_app_by_name("TLD")
 
 
 if __name__ == "__main__":
-	main()
+    main()

@@ -351,6 +351,140 @@ class FusionTrackerAdapter(TrackerAdapter):
         return "Fusion 初始化失败，请确认 OpenCV 已支持 KCF、CSRT、TLD 或重新框选。"
 
 
+class KCFWithTLDRelocalizationTracker:
+    def __init__(self, kcf_factory, tld_factory, probe_interval_frames=200, relocalize_iou_floor=0.1):
+        self.kcf_factory = kcf_factory
+        self.tld_factory = tld_factory
+        self.probe_interval_frames = max(1, int(probe_interval_frames))
+        self.relocalize_iou_floor = float(relocalize_iou_floor)
+
+        self.kcf_tracker = None
+        self.tld_tracker = None
+        self.frame_counter = 0
+        self.last_probe_frame = 0
+        self.last_bbox = None
+        self.last_source = None
+
+    def _init_tracker(self, factory, frame, bbox):
+        tracker = factory()
+        ok = tracker.init(frame.copy(), bbox)
+        if ok is False:
+            return None
+        return tracker
+
+    def _reset_kcf(self, frame, bbox):
+        self.kcf_tracker = self._init_tracker(self.kcf_factory, frame, bbox)
+        return self.kcf_tracker is not None
+
+    def _reset_tld(self, frame, bbox):
+        self.tld_tracker = self._init_tracker(self.tld_factory, frame, bbox)
+        return self.tld_tracker is not None
+
+    def init(self, frame, bbox):
+        bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+        self.frame_counter = 0
+        self.last_probe_frame = 0
+        self.last_bbox = bbox
+        self.last_source = "init"
+        kcf_ok = self._reset_kcf(frame, bbox)
+        tld_ok = self._reset_tld(frame, bbox)
+        return kcf_ok or tld_ok
+
+    def _probe_tld(self, frame, reference_bbox=None):
+        if self.tld_tracker is None:
+            return None
+
+        ok, bbox = self.tld_tracker.update(frame)
+        self.last_probe_frame = self.frame_counter
+        if not ok:
+            return None
+
+        candidate_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+        if reference_bbox is not None and bbox_iou(candidate_bbox, reference_bbox) < self.relocalize_iou_floor:
+            return None
+        return candidate_bbox
+
+    def update(self, frame):
+        self.frame_counter += 1
+
+        if self.kcf_tracker is not None:
+            ok, bbox = self.kcf_tracker.update(frame)
+            if ok:
+                current_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+                self.last_bbox = current_bbox
+                self.last_source = "KCF"
+
+                if self.tld_tracker is not None and (
+                    self.frame_counter - self.last_probe_frame >= self.probe_interval_frames
+                ):
+                    tld_bbox = self._probe_tld(frame, reference_bbox=current_bbox)
+                    if tld_bbox is not None:
+                        self.last_source = "KCF+TLD_CHECK"
+                    self._reset_tld(frame, current_bbox)
+
+                return True, current_bbox
+
+        recovered_bbox = self._probe_tld(frame, reference_bbox=self.last_bbox)
+        if recovered_bbox is None and self.tld_tracker is not None:
+            ok, bbox = self.tld_tracker.update(frame)
+            if ok:
+                recovered_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+
+        if recovered_bbox is None:
+            self.last_source = "LOST"
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        self.last_bbox = recovered_bbox
+        self.last_source = "TLD_RECOVER"
+        self._reset_kcf(frame, recovered_bbox)
+        self._reset_tld(frame, recovered_bbox)
+        return True, recovered_bbox
+
+
+class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
+    algorithm_name = "KCF_TLD"
+
+    def __init__(self, probe_interval_frames=200):
+        self.kcf = KCFTrackerAdapter()
+        self.tld = TLDTrackerAdapter()
+        self.probe_interval_frames = probe_interval_frames
+
+    @property
+    def description(self):
+        return "Tello KCF+TLD 重定位跟踪实验脚本"
+
+    def create_tracker(self):
+        return KCFWithTLDRelocalizationTracker(
+            kcf_factory=self.kcf.create_tracker,
+            tld_factory=self.tld.create_tracker,
+            probe_interval_frames=self.probe_interval_frames,
+        )
+
+    def init_message(self):
+        return "KCF+TLD 初始化失败，请确认 OpenCV 已支持 KCF 和 TLD，或重新框选。"
+
+
+TRACKER_ADAPTER_FACTORIES = {
+    "KCF": KCFTrackerAdapter,
+    "CSRT": CSRTTrackerAdapter,
+    "TLD": TLDTrackerAdapter,
+    "FUSION": FusionTrackerAdapter,
+    "KCF_TLD": KCFWithTLDRelocalizationAdapter,
+}
+
+
+def list_supported_algorithms():
+    return tuple(TRACKER_ADAPTER_FACTORIES.keys())
+
+
+def create_tracker_adapter(algorithm_name):
+    normalized_name = str(algorithm_name).strip().upper()
+    if normalized_name not in TRACKER_ADAPTER_FACTORIES:
+        supported = ", ".join(list_supported_algorithms())
+        raise ValueError(f"不支持的算法: {algorithm_name}。可选值: {supported}")
+    return TRACKER_ADAPTER_FACTORIES[normalized_name]()
+
+
 class ExperimentRecorder:
     def __init__(self, output_dir, save_video):
         run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
@@ -1268,3 +1402,7 @@ def run_tracker_app(adapter):
     finally:
         app.close()
         print("程序已退出")
+
+
+def run_tracker_app_by_name(algorithm_name):
+    run_tracker_app(create_tracker_adapter(algorithm_name))

@@ -1,0 +1,3 @@
+﻿algorithm,sequence_count,total_frames,average_iou,average_center_error,success_rate_iou_0_5,precision_20px,average_fps
+KCF,2,60,0.655892,4.725534,0.65,0.916667,66.413386
+KCF_TLD,2,60,0.44384,209.590739,0.5,0.5,63.220121

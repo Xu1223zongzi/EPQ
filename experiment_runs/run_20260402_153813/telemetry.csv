@@ -1,0 +1,1 @@
+﻿timestamp,frame_index,source_mode,tracker_source,event,tracking_active,tracker_ok,bbox_x,bbox_y,bbox_w,bbox_h,gt_x,gt_y,gt_w,gt_h,error_x,error_y,area_ratio,iou,center_error,planned_lr,planned_fb,planned_ud,planned_yaw,sent_lr,sent_fb,sent_ud,sent_yaw,flying,battery_level,processing_ms

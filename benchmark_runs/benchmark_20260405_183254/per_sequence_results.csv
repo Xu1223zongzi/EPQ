@@ -1,0 +1,5 @@
+﻿algorithm,sequence_key,sequence_dir_name,frames,tracked_frames,success_frames,average_iou,average_center_error,success_rate_iou_0_5,precision_20px,average_fps,annotation_file
+KCF,bike1,bike1,30,15,15,0.658526,8.082218,0.633333,0.833333,57.6159,D:\论文\UAV123\anno\UAV123\bike1.txt
+KCF,bike2,bike2,30,15,15,0.653258,1.368851,0.666667,1.0,75.210872,D:\论文\UAV123\anno\UAV123\bike2.txt
+KCF_TLD,bike1,bike1,30,30,30,0.463871,168.416979,0.5,0.5,126.336535,D:\论文\UAV123\anno\UAV123\bike1.txt
+KCF_TLD,bike2,bike2,30,30,30,0.42381,250.764499,0.5,0.5,0.103706,D:\论文\UAV123\anno\UAV123\bike2.txt
