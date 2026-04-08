@@ -1,4 +1,4 @@
-\documentclass[12pt,a4paper]{report}
+\documentclass[12pt,a4paper]{article}
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
@@ -57,42 +57,63 @@
 
 \setstretch{1.5}
 
-\title{EPQ Title}
+\title{Comparative Study of Object Tracking Algorithms: KCF, CSRT, and TLD}
 \author{Your Name}
 \date{\today}
 
 \begin{document}
 
 \maketitle
-\tableofcontents
 
-\chapter{Introduction}
+\begin{abstract}
+	This project investigates and compares the performance of several prominent object tracking algorithms, specifically Kernelized Correlation Filters (KCF), Discriminative Correlation Filter with Channel and Spatial Reliability (CSRT), and Tracking-Learning-Detection (TLD). The evaluation is conducted using a custom tracking framework and benchmarked against standard datasets. The study analyzes the accuracy and robustness of each algorithm under various tracking conditions.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+% 以下内容要全部删除 不是学术论文的组成部分
+% 正确的学术论文结构应该包括以下部分：	
+% 1. Introduction（引言）：介绍研究背景、动机和目标（客观）
+\subsection{Motivation}
+
+
 
 I chose this project because it connects well with subjects I already study, especially Physics and ICT. It lets me use what I have learnt in class in a more practical way, which makes the project more interesting and meaningful to me. I also like the idea of combining school knowledge with real life, rather than only learning theory.
 Another reason is that I want to improve my Python skills. I have already learnt some programming, and this project gives me a good chance to practise writing code, solving problems, and working more independently. I think these are useful skills for both future study and everyday life.
 I also chose this topic because tracking algorithms are already quite developed, so there are research papers and existing information I can look at. This makes it easier to understand the topic and compare different methods, while still giving me enough space to do my own investigation.
 
+\subsection{Project Objectives}
+The primary objective of this EPQ is to build a Python-based tracking framework to benchmark KCF, CSRT, and TLD algorithms, and potentially a fusion approach. The project will evaluate these algorithms based on objective metrics to determine their relative strengths and weaknesses in practical applications.
 
-\chapter{Main Discussion}
 
-Replace this text with your own content. Add each source to the bibliography file and cite it in the body of the report.
+\section{Literature Review}
+% 2. Literature Review（文献综述）：回顾相关领域的研究工作，介绍已有的算法和方法，并指出它们的优缺点（客观），特别是你论文里面提到的KCF, CSRT, TLD等算法的背景和应用。
+\section{Theoretical Background}
+% 3. Methodology（方法论）：详细描述你使用的研究方法、数据收集和分析过程。对于算法比较，应该说明你是如何实现和测试这些算法的（客观）。
+\subsection{Overview of Object Tracking}
+Object tracking is a crucial field in computer vision, focusing on estimating the trajectory of an object in a video plane as it moves around a scene.
+
+\subsection{Kernelized Correlation Filters (KCF)}
+KCF is known for its high speed and relies on the properties of multi-channel correlation filters. It utilizes circulant matrices to enhance processing speed.
 
 \begin{table}[htbp]
-\centering
-\caption{Matlab code, with a Gaussian kernel}
-\label{tab:gaussian-kernel-code}
-\begin{tabular}{@{}p{0.92\textwidth}@{}}
-\toprule
-\textbf{Inputs} \\
-\quad $x$: training image patch, $m \times n \times c$ \\
-\quad $y$: regression target, Gaussian-shaped, $m \times n$ \\
-\quad $z$: test image patch, $m \times n \times c$ \\
-[0.4em]
-\textbf{Output} \\
-\quad responses: detection score for each location, $m \times n$ \\
-[0.6em]
-\begin{minipage}{0.90\textwidth}
-\begin{lstlisting}
+	\centering
+	\caption{Matlab code, with a Gaussian kernel (Core KCF logic)}
+	\label{tab:gaussian-kernel-code}
+	\begin{tabular}{@{}p{0.92\textwidth}@{}}
+		\toprule
+		\textbf{Inputs}                                                  \\
+		\quad $x$: training image patch, $m \times n \times c$           \\
+		\quad $y$: regression target, Gaussian-shaped, $m \times n$      \\
+		\quad $z$: test image patch, $m \times n \times c$               \\
+		[0.4em]
+		\textbf{Output}                                                  \\
+		\quad responses: detection score for each location, $m \times n$ \\
+		[0.6em]
+		\begin{minipage}{0.90\textwidth}
+			\begin{lstlisting}
 function alphaf = train(x, y, sigma, lambda)
 	k = kernel_correlation(x, x, sigma);
 	alphaf = fft2(y) ./ (fft2(k) + lambda);
@@ -109,12 +130,40 @@ function k = kernel_correlation(x1, x2, sigma)
 	k = exp(-1 / sigma^2 * abs(d) / numel(d));
 end
 \end{lstlisting}
-\end{minipage} \\
-\bottomrule
-\end{tabular}
+		\end{minipage}                  \\
+		\bottomrule
+	\end{tabular}
 \end{table}
 
-\chapter{Conclusion}
+\subsection{CSRT (Channel and Spatial Reliability Tracker)}
+CSRT improves on basic correlation filters by introducing spatial reliability maps, allowing it to adapt better to irregularly shaped objects and occlusions.
+
+\subsection{TLD (Tracking-Learning-Detection)}
+TLD explicitly decomposes the long-term tracking task into tracking, learning, and detection, making it highly robust to full occlusions and objects leaving the camera view.
+
+\section{Methodology}
+
+\subsection{The Tracking Framework}
+A custom Python framework was developed to standardize the input/output for each tracker and log telemetry data (e.g., bounding box coordinates, processing time).
+
+\subsection{Benchmark Setup}
+The evaluation utilizes a benchmarking script (\texttt{uav123\_benchmark.py}) to process video sequences and aggregate tracking results.
+
+\section{Results and Analysis}
+
+\subsection{Performance Metrics}
+Tracking accuracy was measured by comparing the predicted bounding boxes against the ground-truth data in the benchmark datasets.
+
+\subsection{Algorithm Comparison}
+This section will present the aggregated leaderboard results, analyzing the performance of CSRT, KCF, TLD, and the combined Fusion approach across various test sequences.
+
+\section{Discussion}
+
+An analysis of why certain algorithms outperformed others under specific conditions (e.g., occlusion, fast motion, scale variation).
+
+\section{Conclusion}
+
+This section summarizes the findings of the comparative study, validating the practical applications of each algorithm. Future work could explore deep learning-based trackers or optimizing the current implementations.
 
 The key requirement for AQA is consistency. This template gives you a clean and repeatable structure for in-text citations and the final reference list.
 
