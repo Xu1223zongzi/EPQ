@@ -159,6 +159,29 @@ Single-line version:
 Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
 ```
 
+### Four-Algorithm Unified Table And Curves
+
+Step by step:
+
+```powershell
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
+& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION --sequence-names bike1 bike2 car1_s uav3 person10
+```
+
+Single-line version:
+
+```powershell
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION --sequence-names bike1 bike2 car1_s uav3 person10
+```
+
+This generates one shared result set containing all four algorithms in:
+
+- `aggregate_results.csv`
+- `leaderboard.md`
+- `leaderboard.png`
+- `success_plot.png`
+- `precision_plot.png`
+
 ### Full Evaluation
 
 Step by step:
