@@ -1,0 +1,9 @@
+﻿algorithm,sequence_key,sequence_dir_name,frames,tracked_frames,success_frames,average_iou,average_center_error,success_rate_iou_0_5,precision_20px,average_fps,annotation_file
+KCF,bike1,bike1,1543,7,7,0.015023,102.235604,0.005833,0.021387,121.871647,D:\论文\UAV123\anno\UAV123\bike1.txt
+KCF,bike3,bike3,217,14,14,0.067584,59.553929,0.069124,0.258065,155.036356,D:\论文\UAV123\anno\UAV123\bike3.txt
+CSRT,bike1,bike1,1543,1543,1543,0.525087,6.149509,0.623461,0.994815,50.401396,D:\论文\UAV123\anno\UAV123\bike1.txt
+CSRT,bike3,bike3,217,217,217,0.135511,33.343911,0.147465,0.506912,98.105302,D:\论文\UAV123\anno\UAV123\bike3.txt
+TLD,bike1,bike1,1543,1543,1543,0.29532,40.4582,0.109527,0.523007,56.910529,D:\论文\UAV123\anno\UAV123\bike1.txt
+TLD,bike3,bike3,217,217,217,0.004608,208.377989,0.004608,0.004608,2.763895,D:\论文\UAV123\anno\UAV123\bike3.txt
+KCF_TLD,bike1,bike1,1543,58,58,0.017876,213.0604,0.020091,0.024627,61.923944,D:\论文\UAV123\anno\UAV123\bike1.txt
+KCF_TLD,bike3,bike3,217,14,14,0.067584,59.553929,0.069124,0.258065,12.338196,D:\论文\UAV123\anno\UAV123\bike3.txt

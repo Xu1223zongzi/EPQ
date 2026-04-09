@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 
 from tracker_framework import (
     CSRTTrackerAdapter,
-    FusionTrackerAdapter,
     KCFTrackerAdapter,
     KCFWithTLDRelocalizationAdapter,
     TLDTrackerAdapter,
@@ -31,9 +30,17 @@ ALGORITHM_FACTORIES = {
     "KCF": KCFTrackerAdapter,
     "CSRT": CSRTTrackerAdapter,
     "TLD": TLDTrackerAdapter,
-    "FUSION": FusionTrackerAdapter,
     "KCF_TLD": KCFWithTLDRelocalizationAdapter,
 }
+
+
+def create_benchmark_adapter(algorithm_name, args):
+    if algorithm_name == "KCF_TLD":
+        return KCFWithTLDRelocalizationAdapter(
+            probe_interval_frames=args.kcf_tld_probe_interval_frames,
+            recovery_update_interval_frames=args.kcf_tld_recovery_interval_frames,
+        )
+    return ALGORITHM_FACTORIES[algorithm_name]()
 
 
 def resolve_dataset_dirs(uav123_root):
@@ -84,7 +91,16 @@ def build_sequence_specs(sequence_root, annotation_root, requested_sequences=Non
     return specs
 
 
-def evaluate_sequence(adapter, sequence_spec, max_frames=None):
+def evaluate_sequence(
+    adapter,
+    sequence_spec,
+    max_frames=None,
+    frame_step=1,
+    progress_every=100,
+    sequence_timeout_seconds=None,
+    frame_width=480,
+    frame_height=360,
+):
     images = load_sequence_images(sequence_spec["sequence_dir"])
     annotations = load_annotation_file(sequence_spec["annotation_file"])
     usable_length = min(len(images), len(annotations))
@@ -94,11 +110,28 @@ def evaluate_sequence(adapter, sequence_spec, max_frames=None):
     if max_frames is not None:
         usable_length = min(usable_length, max(2, int(max_frames)))
 
+    frame_step = max(1, int(frame_step))
+    progress_every = max(1, int(progress_every))
+
     images = images[:usable_length]
     annotations = annotations[:usable_length]
 
+    if frame_step > 1:
+        sampled_indices = list(range(0, usable_length, frame_step))
+        if sampled_indices[-1] != usable_length - 1:
+            sampled_indices.append(usable_length - 1)
+        images = [images[index] for index in sampled_indices]
+        annotations = [annotations[index] for index in sampled_indices]
+
+    if len(images) < 2:
+        raise RuntimeError(f"序列抽样后可用帧数不足: {sequence_spec['sequence_key']}")
+
+    frame_width = max(64, int(frame_width))
+    frame_height = max(64, int(frame_height))
+    frame_size = (frame_width, frame_height)
+
     first_frame = load_image_with_unicode_path(images[0])
-    resized_first = cv2.resize(first_frame, (640, 480))
+    resized_first = cv2.resize(first_frame, frame_size)
     initial_bbox = scale_bbox_to_frame(annotations[0], first_frame.shape, resized_first.shape)
     initial_bbox = normalize_bbox_for_tracker(initial_bbox, resized_first.shape)
 
@@ -114,9 +147,14 @@ def evaluate_sequence(adapter, sequence_spec, max_frames=None):
     success_frames = 1
     last_bbox = initial_bbox
 
-    for frame_path, annotation in zip(images[1:], annotations[1:]):
+    for processed_index, (frame_path, annotation) in enumerate(zip(images[1:], annotations[1:]), start=2):
+        if sequence_timeout_seconds is not None and (time.perf_counter() - started_at) > sequence_timeout_seconds:
+            raise TimeoutError(
+                f"序列超时: {sequence_spec['sequence_key']} 已运行超过 {sequence_timeout_seconds:.1f} 秒"
+            )
+
         frame = load_image_with_unicode_path(frame_path)
-        resized = cv2.resize(frame, (640, 480))
+        resized = cv2.resize(frame, frame_size)
         gt_bbox = scale_bbox_to_frame(annotation, frame.shape, resized.shape)
         ok, bbox = tracker.update(resized)
         if ok:
@@ -132,6 +170,13 @@ def evaluate_sequence(adapter, sequence_spec, max_frames=None):
         center_errors.append(center_error)
         if ok:
             success_frames += 1
+
+        if processed_index % progress_every == 0 or processed_index == len(images):
+            print(
+                f"[{adapter.algorithm_name}] {sequence_spec['sequence_key']} 进度 "
+                f"{processed_index}/{len(images)} 当前IoU={iou:.4f}",
+                flush=True,
+            )
 
     elapsed = time.perf_counter() - started_at
     frame_count = len(ious)
@@ -316,7 +361,7 @@ def build_argument_parser():
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        default=["KCF", "CSRT", "TLD", "FUSION", "KCF_TLD"],
+        default=["KCF", "CSRT", "TLD", "KCF_TLD"],
         choices=sorted(ALGORITHM_FACTORIES.keys()),
         help="要参与测评的算法列表。",
     )
@@ -328,6 +373,13 @@ def build_argument_parser():
     )
     parser.add_argument("--max-sequences", type=int, default=None, help="可选，仅测前 N 个序列。")
     parser.add_argument("--max-frames", type=int, default=None, help="可选，每个序列最多评估多少帧。")
+    parser.add_argument("--frame-step", type=int, default=1, help="可选，每隔多少帧采样一次进行评测；1 表示逐帧评测。")
+    parser.add_argument("--progress-every", type=int, default=100, help="可选，每处理多少帧打印一次序列内进度。")
+    parser.add_argument("--sequence-timeout-seconds", type=float, default=None, help="可选，单个序列最长允许运行秒数，超时后跳过。")
+    parser.add_argument("--frame-width", type=int, default=480, help="评测时统一缩放后的帧宽度，默认 480。")
+    parser.add_argument("--frame-height", type=int, default=360, help="评测时统一缩放后的帧高度，默认 360。")
+    parser.add_argument("--kcf-tld-probe-interval-frames", type=int, default=300, help="KCF_TLD 正常跟踪时隔多少帧才用 TLD 探测一次，默认 300。")
+    parser.add_argument("--kcf-tld-recovery-interval-frames", type=int, default=10, help="KCF_TLD 丢失后隔多少帧才重试一次 TLD 恢复，默认 10。")
     parser.add_argument("--output-dir", default="benchmark_runs", help="批量测评结果输出目录。")
     return parser
 
@@ -351,14 +403,32 @@ def main():
     print(f"测评序列数: {len(sequence_specs)}")
     print(f"算法列表: {', '.join(args.algorithms)}")
     print(f"输出目录: {run_dir}")
+    print(f"采样步长: {max(1, int(args.frame_step))}")
+    print(f"评测分辨率: {max(64, int(args.frame_width))}x{max(64, int(args.frame_height))}")
+    if args.sequence_timeout_seconds is not None:
+        print(f"单序列超时: {args.sequence_timeout_seconds:.1f} 秒")
 
     for algorithm_name in args.algorithms:
-        adapter = ALGORITHM_FACTORIES[algorithm_name]()
+        adapter = create_benchmark_adapter(algorithm_name, args)
         for sequence_spec in sequence_specs:
-            print(f"[{algorithm_name}] {sequence_spec['sequence_key']} 开始")
+            print(f"[{algorithm_name}] {sequence_spec['sequence_key']} 开始", flush=True)
             try:
-                result = evaluate_sequence(adapter, sequence_spec, max_frames=args.max_frames)
+                result = evaluate_sequence(
+                    adapter,
+                    sequence_spec,
+                    max_frames=args.max_frames,
+                    frame_step=args.frame_step,
+                    progress_every=args.progress_every,
+                    sequence_timeout_seconds=args.sequence_timeout_seconds,
+                    frame_width=args.frame_width,
+                    frame_height=args.frame_height,
+                )
                 per_sequence_results.append(result)
+                print(
+                    f"[{algorithm_name}] {sequence_spec['sequence_key']} 完成: "
+                    f"frames={result['frames']} avg_iou={result['average_iou']:.4f} fps={result['average_fps']:.2f}",
+                    flush=True,
+                )
             except Exception as exc:
                 failures.append(
                     {
@@ -367,7 +437,7 @@ def main():
                         "error": str(exc),
                     }
                 )
-                print(f"[{algorithm_name}] {sequence_spec['sequence_key']} 失败: {exc}")
+                print(f"[{algorithm_name}] {sequence_spec['sequence_key']} 失败: {exc}", flush=True)
 
     aggregate_rows = aggregate_results(per_sequence_results)
 

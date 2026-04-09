@@ -1,6 +1,6 @@
 # EPQ
 
-统一的无人机目标跟踪实验框架，当前支持 KCF、CSRT、TLD、Fusion 和 KCF+TLD 重定位五种算法。
+统一的无人机目标跟踪实验框架，当前支持 KCF、CSRT、TLD 和 KCF+TLD 重定位四种算法。
 
 常用运行命令已固定保存到 [COMMANDS.md](COMMANDS.md)。如果聊天窗口里的指令看不到了，直接打开这个文件即可。
 
@@ -14,7 +14,7 @@ UAV123 目录结构默认约定为：
 可以直接使用数据集根目录和序列名启动，例如：
 
 ```bash
-python Fusion/Fusion.py --uav123-root D:/UAV123 --sequence-name bike1 --save-video
+python KCF/KCF.py --uav123-root D:/UAV123 --sequence-name bike1 --save-video
 ```
 
 KCF 主跟踪 + TLD 重定位模式可这样启动：
@@ -26,7 +26,7 @@ python KCF_TLD/KCF_TLD.py --uav123-root D:/UAV123 --sequence-name bike1 --save-v
 也支持直接把 --uav123-root 指到 data_seq/UAV123 这一层，例如：
 
 ```bash
-python Fusion/Fusion.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --sequence-name bike1 --save-video
+python CSRT/CSRT.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --sequence-name bike1 --save-video
 ```
 
 也可以手动指定图像序列目录和标注文件：
@@ -53,7 +53,7 @@ python CSRT/CSRT.py --sequence-dir D:/UAV123/data_seq/UAV123/bike1 --annotation-
 可以使用批量脚本一次性评估多种算法，并生成论文中常见的汇总表格与曲线图：
 
 ```bash
-python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algorithms KCF CSRT TLD FUSION KCF_TLD --max-sequences 5
+python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algorithms KCF CSRT TLD KCF_TLD --max-sequences 5
 ```
 
 常见输出文件包括：
@@ -69,5 +69,11 @@ python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algo
 
 ```bash
 python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algorithms KCF CSRT KCF_TLD --sequence-names bike1 car1_s uav3
+```
+
+如果担心某些序列特别慢，可以增加跳帧采样、降低评测分辨率，并给单序列设置超时，例如：
+
+```bash
+python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algorithms KCF CSRT TLD KCF_TLD --frame-step 2 --frame-width 480 --frame-height 360 --sequence-timeout-seconds 300 --max-sequences 5
 ```
 

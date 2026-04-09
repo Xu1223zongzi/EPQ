@@ -65,21 +65,6 @@ Single-line version:
 Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "TLD/TLD.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --sequence-name "bike1" --save-video
 ```
 
-### Fusion
-
-Step by step:
-
-```powershell
-Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
-& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "Fusion/Fusion.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --sequence-name "bike1" --save-video
-```
-
-Single-line version:
-
-```powershell
-Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "Fusion/Fusion.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --sequence-name "bike1" --save-video
-```
-
 ### KCF+TLD Relocalization
 
 Step by step:
@@ -150,31 +135,31 @@ Step by step:
 
 ```powershell
 Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
-& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
+& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
 ```
 
 Single-line version:
 
 ```powershell
-Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
 ```
 
-### Four-Algorithm Unified Table And Curves
+### Unified Table And Curves
 
 Step by step:
 
 ```powershell
 Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
-& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION --sequence-names bike1 bike2 car1_s uav3 person10
+& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
 ```
 
 Single-line version:
 
 ```powershell
-Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION --sequence-names bike1 bike2 car1_s uav3 person10
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --sequence-names bike1 bike2 car1_s uav3 person10
 ```
 
-This generates one shared result set containing all four algorithms in:
+This generates one shared result set containing all selected algorithms in:
 
 - `aggregate_results.csv`
 - `leaderboard.md`
@@ -188,13 +173,28 @@ Step by step:
 
 ```powershell
 Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
-& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION KCF_TLD
+& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD
 ```
 
 Single-line version:
 
 ```powershell
-Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD FUSION KCF_TLD
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD
+```
+
+### Faster Benchmark With Sampling And Timeout
+
+Step by step:
+
+```powershell
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"
+& "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --frame-step 2 --frame-width 480 --frame-height 360 --progress-every 50 --sequence-timeout-seconds 300 --max-sequences 5
+```
+
+Single-line version:
+
+```powershell
+Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/PyCharmMiscProject/.venv/Scripts/python.exe" "uav123_benchmark.py" --uav123-root "D:/论文/UAV123/data_seq/UAV123" --algorithms KCF CSRT TLD KCF_TLD --frame-step 2 --frame-width 480 --frame-height 360 --progress-every 50 --sequence-timeout-seconds 300 --max-sequences 5
 ```
 
 ## 4. Output Files

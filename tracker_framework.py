@@ -238,130 +238,26 @@ def bbox_distance(box_a, box_b):
     return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
 
-def average_bbox(boxes):
-    count = float(len(boxes))
-    return tuple(sum(box[index] for box in boxes) / count for index in range(4))
-
-
-class FusionOpenCVTracker:
-    def __init__(self, tracker_specs):
-        self.tracker_specs = tracker_specs
-        self.trackers = []
-        self.last_bbox = None
-        self.last_source = None
-
-    def init(self, frame, bbox):
-        self.trackers = []
-        init_ok = False
-        for spec in self.tracker_specs:
-            tracker = spec["factory"]()
-            ok = tracker.init(frame.copy(), bbox)
-            self.trackers.append(
-                {
-                    "name": spec["name"],
-                    "weight": spec["weight"],
-                    "tracker": tracker,
-                    "ok": ok is not False,
-                    "bbox": tuple(float(v) for v in bbox),
-                }
-            )
-            if ok is not False:
-                init_ok = True
-
-        if init_ok:
-            self.last_bbox = tuple(float(v) for v in bbox)
-            self.last_source = "init"
-        return init_ok
-
-    def _pick_best_candidate(self, candidates):
-        if not candidates:
-            return None
-
-        if len(candidates) >= 2:
-            consensus_boxes = []
-            for index, candidate in enumerate(candidates):
-                overlaps = [candidate["bbox"]]
-                for other_index, other in enumerate(candidates):
-                    if index == other_index:
-                        continue
-                    if bbox_iou(candidate["bbox"], other["bbox"]) >= 0.35:
-                        overlaps.append(other["bbox"])
-                if len(overlaps) >= 2:
-                    consensus_boxes.append(average_bbox(overlaps))
-
-            if consensus_boxes:
-                reference = self.last_bbox if self.last_bbox is not None else consensus_boxes[0]
-                best_consensus = min(consensus_boxes, key=lambda box: bbox_distance(box, reference))
-                return {
-                    "name": "consensus",
-                    "bbox": best_consensus,
-                }
-
-        if self.last_bbox is None:
-            return max(candidates, key=lambda item: item["weight"])
-
-        def candidate_score(item):
-            continuity = bbox_iou(item["bbox"], self.last_bbox)
-            distance_penalty = bbox_distance(item["bbox"], self.last_bbox) / 120.0
-            area_penalty = abs((bbox_area(item["bbox"]) / max(bbox_area(self.last_bbox), 1.0)) - 1.0)
-            return item["weight"] + continuity - distance_penalty - 0.4 * area_penalty
-
-        return max(candidates, key=candidate_score)
-
-    def update(self, frame):
-        candidates = []
-        for tracker_state in self.trackers:
-            ok, bbox = tracker_state["tracker"].update(frame)
-            tracker_state["ok"] = ok
-            if ok:
-                tracker_state["bbox"] = tuple(float(v) for v in bbox)
-                candidates.append(tracker_state)
-
-        selected = self._pick_best_candidate(candidates)
-        if selected is None:
-            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-        self.last_bbox = selected["bbox"]
-        self.last_source = selected["name"]
-        return True, selected["bbox"]
-
-
-class FusionTrackerAdapter(TrackerAdapter):
-    algorithm_name = "FUSION"
-
-    def __init__(self):
-        self.kcf = KCFTrackerAdapter()
-        self.csrt = CSRTTrackerAdapter()
-        self.tld = TLDTrackerAdapter()
-
-    @property
-    def description(self):
-        return "Tello Fusion 跟踪实验脚本"
-
-    def create_tracker(self):
-        return FusionOpenCVTracker(
-            [
-                {"name": "CSRT", "factory": self.csrt.create_tracker, "weight": 1.00},
-                {"name": "KCF", "factory": self.kcf.create_tracker, "weight": 0.88},
-                {"name": "TLD", "factory": self.tld.create_tracker, "weight": 0.76},
-            ]
-        )
-
-    def init_message(self):
-        return "Fusion 初始化失败，请确认 OpenCV 已支持 KCF、CSRT、TLD 或重新框选。"
-
-
 class KCFWithTLDRelocalizationTracker:
-    def __init__(self, kcf_factory, tld_factory, probe_interval_frames=200, relocalize_iou_floor=0.1):
+    def __init__(
+        self,
+        kcf_factory,
+        tld_factory,
+        probe_interval_frames=200,
+        relocalize_iou_floor=0.1,
+        recovery_update_interval_frames=5,
+    ):
         self.kcf_factory = kcf_factory
         self.tld_factory = tld_factory
         self.probe_interval_frames = max(1, int(probe_interval_frames))
         self.relocalize_iou_floor = float(relocalize_iou_floor)
+        self.recovery_update_interval_frames = max(1, int(recovery_update_interval_frames))
 
         self.kcf_tracker = None
         self.tld_tracker = None
         self.frame_counter = 0
         self.last_probe_frame = 0
+        self.last_recovery_attempt_frame = 0
         self.last_bbox = None
         self.last_source = None
 
@@ -384,6 +280,7 @@ class KCFWithTLDRelocalizationTracker:
         bbox = normalize_bbox_for_tracker(bbox, frame.shape)
         self.frame_counter = 0
         self.last_probe_frame = 0
+        self.last_recovery_attempt_frame = 0
         self.last_bbox = bbox
         self.last_source = "init"
         kcf_ok = self._reset_kcf(frame, bbox)
@@ -424,11 +321,12 @@ class KCFWithTLDRelocalizationTracker:
 
                 return True, current_bbox
 
+        if self.frame_counter - self.last_recovery_attempt_frame < self.recovery_update_interval_frames:
+            self.last_source = "WAIT_RECOVER"
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        self.last_recovery_attempt_frame = self.frame_counter
         recovered_bbox = self._probe_tld(frame, reference_bbox=self.last_bbox)
-        if recovered_bbox is None and self.tld_tracker is not None:
-            ok, bbox = self.tld_tracker.update(frame)
-            if ok:
-                recovered_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
 
         if recovered_bbox is None:
             self.last_source = "LOST"
@@ -444,10 +342,11 @@ class KCFWithTLDRelocalizationTracker:
 class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
     algorithm_name = "KCF_TLD"
 
-    def __init__(self, probe_interval_frames=200):
+    def __init__(self, probe_interval_frames=300, recovery_update_interval_frames=10):
         self.kcf = KCFTrackerAdapter()
         self.tld = TLDTrackerAdapter()
         self.probe_interval_frames = probe_interval_frames
+        self.recovery_update_interval_frames = recovery_update_interval_frames
 
     @property
     def description(self):
@@ -458,6 +357,7 @@ class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
             kcf_factory=self.kcf.create_tracker,
             tld_factory=self.tld.create_tracker,
             probe_interval_frames=self.probe_interval_frames,
+            recovery_update_interval_frames=self.recovery_update_interval_frames,
         )
 
     def init_message(self):
@@ -468,7 +368,6 @@ TRACKER_ADAPTER_FACTORIES = {
     "KCF": KCFTrackerAdapter,
     "CSRT": CSRTTrackerAdapter,
     "TLD": TLDTrackerAdapter,
-    "FUSION": FusionTrackerAdapter,
     "KCF_TLD": KCFWithTLDRelocalizationAdapter,
 }
 

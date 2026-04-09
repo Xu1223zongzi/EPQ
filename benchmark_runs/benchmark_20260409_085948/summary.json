@@ -1,0 +1,114 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260409_085948",
+  "sequence_count": 5,
+  "algorithms": [
+    "KCF",
+    "CSRT",
+    "TLD",
+    "KCF_TLD"
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "CSRT",
+      "sequence_count": 2,
+      "total_frames": 1760,
+      "average_iou": 0.477054,
+      "average_center_error": 9.502455,
+      "success_rate_iou_0_5": 0.564773,
+      "precision_20px": 0.934659,
+      "average_fps": 56.283071
+    },
+    {
+      "algorithm": "TLD",
+      "sequence_count": 2,
+      "total_frames": 1760,
+      "average_iou": 0.259476,
+      "average_center_error": 61.161947,
+      "success_rate_iou_0_5": 0.096591,
+      "precision_20px": 0.459091,
+      "average_fps": 50.234495
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 2,
+      "total_frames": 1760,
+      "average_iou": 0.024005,
+      "average_center_error": 194.13375,
+      "success_rate_iou_0_5": 0.026136,
+      "precision_20px": 0.053409,
+      "average_fps": 55.810247
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_count": 2,
+      "total_frames": 1760,
+      "average_iou": 0.021504,
+      "average_center_error": 96.973148,
+      "success_rate_iou_0_5": 0.013636,
+      "precision_20px": 0.050568,
+      "average_fps": 125.960705
+    }
+  ],
+  "failures": [
+    {
+      "algorithm": "KCF",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_key": "bird1_1",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_key": "bird1_2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "CSRT",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "CSRT",
+      "sequence_key": "bird1_1",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "CSRT",
+      "sequence_key": "bird1_2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "TLD",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "TLD",
+      "sequence_key": "bird1_1",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "TLD",
+      "sequence_key": "bird1_2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bird1_1",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bird1_2",
+      "error": "cannot convert float NaN to integer"
+    }
+  ]
+}
