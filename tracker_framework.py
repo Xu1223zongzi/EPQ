@@ -243,15 +243,29 @@ class KCFWithTLDRelocalizationTracker:
         self,
         kcf_factory,
         tld_factory,
-        probe_interval_frames=200,
-        relocalize_iou_floor=0.1,
+        probe_interval_frames=120,
+        relocalize_iou_floor=0.3,
         recovery_update_interval_frames=5,
+        recovery_confirmation_frames=2,
+        recovery_consistency_iou_floor=0.45,
+        tld_activation_failures=2,
+        unstable_continuity_iou_floor=0.15,
+        unstable_area_ratio_floor=0.5,
+        unstable_area_ratio_ceiling=2.0,
+        recovery_max_frames=120,
     ):
         self.kcf_factory = kcf_factory
         self.tld_factory = tld_factory
         self.probe_interval_frames = max(1, int(probe_interval_frames))
         self.relocalize_iou_floor = float(relocalize_iou_floor)
         self.recovery_update_interval_frames = max(1, int(recovery_update_interval_frames))
+        self.recovery_confirmation_frames = max(1, int(recovery_confirmation_frames))
+        self.recovery_consistency_iou_floor = float(recovery_consistency_iou_floor)
+        self.tld_activation_failures = max(1, int(tld_activation_failures))
+        self.unstable_continuity_iou_floor = float(unstable_continuity_iou_floor)
+        self.unstable_area_ratio_floor = float(unstable_area_ratio_floor)
+        self.unstable_area_ratio_ceiling = float(unstable_area_ratio_ceiling)
+        self.recovery_max_frames = max(1, int(recovery_max_frames))
 
         self.kcf_tracker = None
         self.tld_tracker = None
@@ -260,6 +274,41 @@ class KCFWithTLDRelocalizationTracker:
         self.last_recovery_attempt_frame = 0
         self.last_bbox = None
         self.last_source = None
+        self.pending_recovery_bbox = None
+        self.pending_recovery_hits = 0
+        self.kcf_failure_streak = 0
+        self.recovery_started_frame = None
+
+    def _clear_pending_recovery(self):
+        self.pending_recovery_bbox = None
+        self.pending_recovery_hits = 0
+
+    def _clear_tld_state(self):
+        self.tld_tracker = None
+        self._clear_pending_recovery()
+        self.recovery_started_frame = None
+
+    def _arm_tld(self, frame):
+        if self.last_bbox is None:
+            return False
+        self.tld_tracker = self._init_tracker(self.tld_factory, frame, self.last_bbox)
+        self._clear_pending_recovery()
+        return self.tld_tracker is not None
+
+    def _is_recovery_mode_active(self):
+        return self.tld_tracker is not None or self.pending_recovery_bbox is not None
+
+    def _is_kcf_prediction_reliable(self, candidate_bbox):
+        if self.last_bbox is None:
+            return True
+
+        continuity_iou = bbox_iou(candidate_bbox, self.last_bbox)
+        area_ratio = bbox_area(candidate_bbox) / max(bbox_area(self.last_bbox), 1.0)
+        if continuity_iou >= self.unstable_continuity_iou_floor:
+            return True
+        if self.unstable_area_ratio_floor <= area_ratio <= self.unstable_area_ratio_ceiling:
+            return True
+        return False
 
     def _init_tracker(self, factory, frame, bbox):
         tracker = factory()
@@ -283,9 +332,10 @@ class KCFWithTLDRelocalizationTracker:
         self.last_recovery_attempt_frame = 0
         self.last_bbox = bbox
         self.last_source = "init"
+        self.kcf_failure_streak = 0
+        self._clear_tld_state()
         kcf_ok = self._reset_kcf(frame, bbox)
-        tld_ok = self._reset_tld(frame, bbox)
-        return kcf_ok or tld_ok
+        return kcf_ok
 
     def _probe_tld(self, frame, reference_bbox=None):
         if self.tld_tracker is None:
@@ -304,22 +354,42 @@ class KCFWithTLDRelocalizationTracker:
     def update(self, frame):
         self.frame_counter += 1
 
-        if self.kcf_tracker is not None:
+        if not self._is_recovery_mode_active() and self.kcf_tracker is not None:
             ok, bbox = self.kcf_tracker.update(frame)
             if ok:
                 current_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
-                self.last_bbox = current_bbox
-                self.last_source = "KCF"
+                if self._is_kcf_prediction_reliable(current_bbox):
+                    self.last_bbox = current_bbox
+                    self.last_source = "KCF"
+                    self.kcf_failure_streak = 0
+                    self._clear_tld_state()
+                    return True, current_bbox
 
-                if self.tld_tracker is not None and (
-                    self.frame_counter - self.last_probe_frame >= self.probe_interval_frames
-                ):
-                    tld_bbox = self._probe_tld(frame, reference_bbox=current_bbox)
-                    if tld_bbox is not None:
-                        self.last_source = "KCF+TLD_CHECK"
-                    self._reset_tld(frame, current_bbox)
+                self.kcf_failure_streak += 1
+                self.last_source = "KCF_UNCERTAIN"
+            else:
+                self.kcf_failure_streak += 1
+                self.last_source = "KCF_FAIL"
 
-                return True, current_bbox
+        if self.kcf_failure_streak < self.tld_activation_failures:
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        if self.tld_tracker is None:
+            if not self._arm_tld(frame):
+                self.last_source = "TLD_INIT_FAIL"
+                return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+            self.last_source = "TLD_ARMED"
+            self.recovery_started_frame = self.frame_counter
+            self.last_recovery_attempt_frame = self.frame_counter
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        if self.recovery_started_frame is not None:
+            recovery_duration = self.frame_counter - self.recovery_started_frame
+            if recovery_duration >= self.recovery_max_frames:
+                self.last_source = "RECOVERY_TIMEOUT"
+                self.kcf_failure_streak = 0
+                self._clear_tld_state()
+                return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
 
         if self.frame_counter - self.last_recovery_attempt_frame < self.recovery_update_interval_frames:
             self.last_source = "WAIT_RECOVER"
@@ -329,24 +399,65 @@ class KCFWithTLDRelocalizationTracker:
         recovered_bbox = self._probe_tld(frame, reference_bbox=self.last_bbox)
 
         if recovered_bbox is None:
+            self._clear_pending_recovery()
             self.last_source = "LOST"
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        if self.pending_recovery_bbox is None:
+            self.pending_recovery_bbox = recovered_bbox
+            self.pending_recovery_hits = 1
+            self.last_source = "TLD_CANDIDATE"
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        consistency_iou = bbox_iou(recovered_bbox, self.pending_recovery_bbox)
+        if consistency_iou < self.recovery_consistency_iou_floor:
+            self.pending_recovery_bbox = recovered_bbox
+            self.pending_recovery_hits = 1
+            self.last_source = "TLD_RETRY"
+            return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
+
+        self.pending_recovery_bbox = recovered_bbox
+        self.pending_recovery_hits += 1
+        if self.pending_recovery_hits < self.recovery_confirmation_frames:
+            self.last_source = "TLD_CONFIRM"
             return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
 
         self.last_bbox = recovered_bbox
         self.last_source = "TLD_RECOVER"
+        self.kcf_failure_streak = 0
         self._reset_kcf(frame, recovered_bbox)
-        self._reset_tld(frame, recovered_bbox)
+        self._clear_tld_state()
         return True, recovered_bbox
 
 
 class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
     algorithm_name = "KCF_TLD"
 
-    def __init__(self, probe_interval_frames=300, recovery_update_interval_frames=10):
+    def __init__(
+        self,
+        probe_interval_frames=120,
+        relocalize_iou_floor=0.3,
+        recovery_update_interval_frames=3,
+        recovery_confirmation_frames=2,
+        recovery_consistency_iou_floor=0.45,
+        tld_activation_failures=2,
+        unstable_continuity_iou_floor=0.15,
+        unstable_area_ratio_floor=0.5,
+        unstable_area_ratio_ceiling=2.0,
+        recovery_max_frames=120,
+    ):
         self.kcf = KCFTrackerAdapter()
         self.tld = TLDTrackerAdapter()
         self.probe_interval_frames = probe_interval_frames
+        self.relocalize_iou_floor = relocalize_iou_floor
         self.recovery_update_interval_frames = recovery_update_interval_frames
+        self.recovery_confirmation_frames = recovery_confirmation_frames
+        self.recovery_consistency_iou_floor = recovery_consistency_iou_floor
+        self.tld_activation_failures = tld_activation_failures
+        self.unstable_continuity_iou_floor = unstable_continuity_iou_floor
+        self.unstable_area_ratio_floor = unstable_area_ratio_floor
+        self.unstable_area_ratio_ceiling = unstable_area_ratio_ceiling
+        self.recovery_max_frames = recovery_max_frames
 
     @property
     def description(self):
@@ -357,7 +468,15 @@ class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
             kcf_factory=self.kcf.create_tracker,
             tld_factory=self.tld.create_tracker,
             probe_interval_frames=self.probe_interval_frames,
+            relocalize_iou_floor=self.relocalize_iou_floor,
             recovery_update_interval_frames=self.recovery_update_interval_frames,
+            recovery_confirmation_frames=self.recovery_confirmation_frames,
+            recovery_consistency_iou_floor=self.recovery_consistency_iou_floor,
+            tld_activation_failures=self.tld_activation_failures,
+            unstable_continuity_iou_floor=self.unstable_continuity_iou_floor,
+            unstable_area_ratio_floor=self.unstable_area_ratio_floor,
+            unstable_area_ratio_ceiling=self.unstable_area_ratio_ceiling,
+            recovery_max_frames=self.recovery_max_frames,
         )
 
     def init_message(self):

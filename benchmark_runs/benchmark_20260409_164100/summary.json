@@ -1,0 +1,26 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260409_164100",
+  "sequence_count": 2,
+  "algorithms": [
+    "KCF_TLD"
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 1,
+      "total_frames": 133,
+      "average_iou": 0.009405,
+      "average_center_error": 234.255927,
+      "success_rate_iou_0_5": 0.007519,
+      "precision_20px": 0.015038,
+      "average_fps": 87.789631
+    }
+  ],
+  "failures": [
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bike1",
+      "error": "Unknown C++ exception from OpenCV code"
+    }
+  ]
+}

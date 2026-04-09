@@ -1,0 +1,31 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260409_123443",
+  "sequence_count": 1,
+  "algorithms": [
+    "KCF",
+    "KCF_TLD"
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "KCF",
+      "sequence_count": 1,
+      "total_frames": 217,
+      "average_iou": 0.067584,
+      "average_center_error": 59.553929,
+      "success_rate_iou_0_5": 0.069124,
+      "precision_20px": 0.258065,
+      "average_fps": 131.423513
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 1,
+      "total_frames": 217,
+      "average_iou": 0.067584,
+      "average_center_error": 59.553929,
+      "success_rate_iou_0_5": 0.069124,
+      "precision_20px": 0.258065,
+      "average_fps": 11.821992
+    }
+  ],
+  "failures": []
+}

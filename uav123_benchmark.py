@@ -38,7 +38,15 @@ def create_benchmark_adapter(algorithm_name, args):
     if algorithm_name == "KCF_TLD":
         return KCFWithTLDRelocalizationAdapter(
             probe_interval_frames=args.kcf_tld_probe_interval_frames,
+            relocalize_iou_floor=args.kcf_tld_relocalize_iou_floor,
             recovery_update_interval_frames=args.kcf_tld_recovery_interval_frames,
+            recovery_confirmation_frames=args.kcf_tld_recovery_confirmation_frames,
+            recovery_consistency_iou_floor=args.kcf_tld_recovery_consistency_iou_floor,
+            tld_activation_failures=args.kcf_tld_activation_failures,
+            unstable_continuity_iou_floor=args.kcf_tld_unstable_continuity_iou_floor,
+            unstable_area_ratio_floor=args.kcf_tld_unstable_area_ratio_floor,
+            unstable_area_ratio_ceiling=args.kcf_tld_unstable_area_ratio_ceiling,
+            recovery_max_frames=args.kcf_tld_recovery_max_frames,
         )
     return ALGORITHM_FACTORIES[algorithm_name]()
 
@@ -146,6 +154,7 @@ def evaluate_sequence(
     tracked_frames = 1
     success_frames = 1
     last_bbox = initial_bbox
+    tracker_source_counts = {"init": 1}
 
     for processed_index, (frame_path, annotation) in enumerate(zip(images[1:], annotations[1:]), start=2):
         if sequence_timeout_seconds is not None and (time.perf_counter() - started_at) > sequence_timeout_seconds:
@@ -157,6 +166,8 @@ def evaluate_sequence(
         resized = cv2.resize(frame, frame_size)
         gt_bbox = scale_bbox_to_frame(annotation, frame.shape, resized.shape)
         ok, bbox = tracker.update(resized)
+        tracker_source = getattr(tracker, "last_source", adapter.algorithm_name) or adapter.algorithm_name
+        tracker_source_counts[tracker_source] = tracker_source_counts.get(tracker_source, 0) + 1
         if ok:
             predicted_bbox = normalize_bbox_for_tracker(bbox, resized.shape)
             last_bbox = predicted_bbox
@@ -201,6 +212,7 @@ def evaluate_sequence(
         "average_fps": average_fps,
         "ious": ious,
         "center_errors": center_errors,
+        "tracker_source_counts": tracker_source_counts,
     }
 
 
@@ -378,8 +390,16 @@ def build_argument_parser():
     parser.add_argument("--sequence-timeout-seconds", type=float, default=None, help="可选，单个序列最长允许运行秒数，超时后跳过。")
     parser.add_argument("--frame-width", type=int, default=480, help="评测时统一缩放后的帧宽度，默认 480。")
     parser.add_argument("--frame-height", type=int, default=360, help="评测时统一缩放后的帧高度，默认 360。")
-    parser.add_argument("--kcf-tld-probe-interval-frames", type=int, default=300, help="KCF_TLD 正常跟踪时隔多少帧才用 TLD 探测一次，默认 300。")
-    parser.add_argument("--kcf-tld-recovery-interval-frames", type=int, default=10, help="KCF_TLD 丢失后隔多少帧才重试一次 TLD 恢复，默认 10。")
+    parser.add_argument("--kcf-tld-probe-interval-frames", type=int, default=120, help="KCF_TLD 正常跟踪时隔多少帧才用 TLD 探测一次，默认 120。")
+    parser.add_argument("--kcf-tld-relocalize-iou-floor", type=float, default=0.3, help="KCF_TLD 接受 TLD 恢复候选时要求与上一框的最小 IoU，默认 0.3。")
+    parser.add_argument("--kcf-tld-recovery-interval-frames", type=int, default=3, help="KCF_TLD 丢失后隔多少帧才重试一次 TLD 恢复，默认 3。")
+    parser.add_argument("--kcf-tld-recovery-confirmation-frames", type=int, default=2, help="KCF_TLD 连续多少次稳定命中后才接受恢复，默认 2。")
+    parser.add_argument("--kcf-tld-recovery-consistency-iou-floor", type=float, default=0.45, help="KCF_TLD 连续两次恢复候选之间要求的最小 IoU，默认 0.45。")
+    parser.add_argument("--kcf-tld-activation-failures", type=int, default=2, help="KCF_TLD 在 KCF 连续失败或异常多少次后才激活 TLD，默认 2。")
+    parser.add_argument("--kcf-tld-unstable-continuity-iou-floor", type=float, default=0.15, help="KCF_TLD 判定 KCF 结果明显不连续的 IoU 阈值，默认 0.15。")
+    parser.add_argument("--kcf-tld-unstable-area-ratio-floor", type=float, default=0.5, help="KCF_TLD 判定 KCF 框面积异常时的最小面积比例，默认 0.5。")
+    parser.add_argument("--kcf-tld-unstable-area-ratio-ceiling", type=float, default=2.0, help="KCF_TLD 判定 KCF 框面积异常时的最大面积比例，默认 2.0。")
+    parser.add_argument("--kcf-tld-recovery-max-frames", type=int, default=120, help="KCF_TLD 单次恢复态最长持续多少帧，默认 120。")
     parser.add_argument("--output-dir", default="benchmark_runs", help="批量测评结果输出目录。")
     return parser
 
@@ -426,7 +446,8 @@ def main():
                 per_sequence_results.append(result)
                 print(
                     f"[{algorithm_name}] {sequence_spec['sequence_key']} 完成: "
-                    f"frames={result['frames']} avg_iou={result['average_iou']:.4f} fps={result['average_fps']:.2f}",
+                    f"frames={result['frames']} avg_iou={result['average_iou']:.4f} fps={result['average_fps']:.2f} "
+                    f"sources={json.dumps(result['tracker_source_counts'], ensure_ascii=False, sort_keys=True)}",
                     flush=True,
                 )
             except Exception as exc:

@@ -1,0 +1,2 @@
+﻿algorithm,sequence_key,sequence_dir_name,frames,tracked_frames,success_frames,average_iou,average_center_error,success_rate_iou_0_5,precision_20px,average_fps,annotation_file
+KCF_TLD,uav3,uav3,133,2,2,0.009405,234.255927,0.007519,0.015038,87.789631,D:\论文\UAV123\anno\UAV123\uav3.txt

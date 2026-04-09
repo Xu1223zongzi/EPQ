@@ -1,0 +1,52 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260409_164509",
+  "sequence_count": 5,
+  "algorithms": [
+    "KCF",
+    "KCF_TLD"
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 3,
+      "total_frames": 2414,
+      "average_iou": 0.065087,
+      "average_center_error": 105.209332,
+      "success_rate_iou_0_5": 0.042254,
+      "precision_20px": 0.111019,
+      "average_fps": 139.263126
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_count": 3,
+      "total_frames": 2414,
+      "average_iou": 0.044469,
+      "average_center_error": 104.440059,
+      "success_rate_iou_0_5": 0.033969,
+      "precision_20px": 0.096935,
+      "average_fps": 107.195251
+    }
+  ],
+  "failures": [
+    {
+      "algorithm": "KCF",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_key": "person10",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "person10",
+      "error": "cannot convert float NaN to integer"
+    }
+  ]
+}
