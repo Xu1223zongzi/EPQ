@@ -8,11 +8,12 @@
 \usepackage{hyperref}
 \usepackage{array}
 \usepackage{booktabs}
+\usepackage{amsmath}
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage[
 	backend=biber,
-	style=authoryear,
+	style=gb7714-2015,
 	sorting=nyt,
 	giveninits=true,
 	uniquename=init,
@@ -57,6 +58,7 @@
 }
 
 \setstretch{1.5}
+\setcounter{secnumdepth}{3}
 
 \title{Comparative Study of Object Tracking Algorithms: KCF, CSRT, and TLD}
 \author{Your Name}
@@ -66,38 +68,26 @@
 
 \maketitle
 
-\begin{abstract}
-	This project investigates and compares the performance of several prominent object tracking algorithms, specifically Kernelized Correlation Filters (KCF), Discriminative Correlation Filter with Channel and Spatial Reliability (CSRT), and Tracking-Learning-Detection (TLD). The evaluation is conducted using a custom tracking framework and benchmarked against standard datasets. The study analyzes the accuracy and robustness of each algorithm under various tracking conditions.
-\end{abstract}
-
 \tableofcontents
 \newpage
 
 \section{Introduction}
-% 以下内容要全部删除 不是学术论文的组成部分
-% 正确的学术论文结构应该包括以下部分：	
-% 1. Introduction（引言）：介绍研究背景、动机和目标（客观）
-\subsection{Motivation}
+Under the rapid development of the low-altitude economy, the demand for UAV tracking modules continues to rise in both industry and research. Classical discriminative trackers such as KCF, CSRT, and TLD have already provided important technical foundations for practical target tracking. KCF, proposed by Henriques et al., relies on circulant matrices and the kernel trick, and uses the fast Fourier transform in the frequency domain to achieve very efficient computation \cite{henriques2015kcf}. CSRT, proposed by Luke\v{z}i\v{c} et al., introduces channel reliability and spatial reliability so as to improve robustness while maintaining good accuracy \cite{lukezic2017csrt}. TLD, proposed by Kalal et al., combines tracking, learning, and detection, and adapts to target appearance variation through online updating \cite{kalal2012tld}. However, each of these algorithms has an obvious shortcoming. KCF is extremely fast and has low computational cost, but it can easily lose the target after short-term occlusion. CSRT has higher precision, stronger robustness in complicated scenes, and better scale adaptation, but its computational cost increases significantly as its precision improves. TLD has persistent learning capability and good resistance to occlusion, but its heavy computational burden makes real-time performance difficult to maintain \cite{kalal2012tld}.
 
+Although many studies have focused on UAV tracking, most existing work concentrates on improving a single algorithm rather than carrying out a systematic comparison of several classical algorithms under a unified benchmark. In particular, in UAV tracking, the target often undergoes drastic viewpoint change, the platform shakes frequently, and the available computational resources are limited. Therefore, the trade-off among accuracy, speed, and computational cost still requires more explicit analysis. Based on this background, this paper systematically compares KCF, CSRT, and TLD on standard datasets, quantitatively analyses their application boundaries in UAV tracking, and attempts to provide a clearer basis for algorithm selection and later optimisation.
 
-
-I chose this project because it connects well with subjects I already study, especially Physics and ICT. It lets me use what I have learnt in class in a more practical way, which makes the project more interesting and meaningful to me. I also like the idea of combining school knowledge with real life, rather than only learning theory.
-Another reason is that I want to improve my Python skills. I have already learnt some programming, and this project gives me a good chance to practise writing code, solving problems, and working more independently. I think these are useful skills for both future study and everyday life.
-I also chose this topic because tracking algorithms are already quite developed, so there are research papers and existing information I can look at. This makes it easier to understand the topic and compare different methods, while still giving me enough space to do my own investigation.
-
-\subsection{Project Objectives}
-The primary objective of this EPQ is to build a Python-based tracking framework to benchmark KCF, CSRT, and TLD algorithms, and potentially a fusion approach. The project will evaluate these algorithms based on objective metrics to determine their relative strengths and weaknesses in practical applications.
+At the same time, this project further proposes a hybrid KCF\textendash TLD method. The aim is not simply to force two algorithms to run together, but to combine their advantages in a role-based way: KCF is used as the main tracker because of its speed, while TLD is used as a repair module when the target is lost. In this way, the study not only compares the three classical algorithms, but also explores whether a complementary design can achieve a more practical balance between high frame rate and target recovery capability.
 
 
 \section{Literature Review}
-% 2. Literature Review（文献综述）：回顾相关领域的研究工作，介绍已有的算法和方法，并指出它们的优缺点（客观），特别是你论文里面提到的KCF, CSRT, TLD等算法的背景和应用。
-\section{Theoretical Background}
-% 3. Methodology（方法论）：详细描述你使用的研究方法、数据收集和分析过程。对于算法比较，应该说明你是如何实现和测试这些算法的（客观）。
-\subsection{Overview of Object Tracking}
-Object tracking is a crucial field in computer vision, focusing on estimating the trajectory of an object in a video plane as it moves around a scene.
+According to the core mechanism of modern discriminative trackers, the algorithms discussed in this paper can be roughly divided into three categories: kernel correlation filter methods represented by KCF, channel and spatial reliability methods represented by CSRT, and long-term tracking-learning-detection methods represented by TLD \cite{bai2021review}.
 
-\subsection{Kernelized Correlation Filters (KCF)}
-KCF is known for its high speed and relies on the properties of multi-channel correlation filters. It utilizes circulant matrices to enhance processing speed.
+\subsection{KCF}
+The core idea of KCF is to train a discriminative classifier through a kernelized correlation filter. It generates a large set of translated samples by cyclic shifts of the target patch and learns the model by ridge regression. Its core frequency-domain solution can be written as
+\[
+\hat{w}=\frac{\hat{x}^{\ast}\odot\hat{y}}{\hat{x}^{\ast}\odot\hat{x}+\lambda},
+\]
+where $\hat{x}$ denotes the Fourier transform of the sample, $\hat{y}$ is the desired Gaussian response, and $\lambda$ is the regularisation parameter. By diagonalising circulant matrices through the discrete Fourier transform, KCF greatly simplifies computation and therefore achieves a very high frame rate \cite{henriques2015kcf}. Its main strengths are speed and relatively low computational demand. However, its weaknesses are also clear: it is prone to bounding-box drift, its ability to handle large scale change is limited, and it usually loses the target after severe occlusion.
 
 \begin{table}[htbp]
 	\centering
@@ -136,37 +126,66 @@ end
 	\end{tabular}
 \end{table}
 
-\subsection{CSRT (Channel and Spatial Reliability Tracker)}
-CSRT improves on basic correlation filters by introducing spatial reliability maps, allowing it to adapt better to irregularly shaped objects and occlusions.
+\subsection{CSRT}
+CSRT is based on channel and spatial reliability. Its general optimisation idea can be expressed as
+\[
+\min_f \sum_{c=1}^{C} \alpha_c \left\lVert S_c(f) * g - y \right\rVert^2 + \lambda \left\lVert f \right\rVert^2,
+\]
+where $f$ is the filter, $g$ is the target template, $y$ is the desired response, $S_c(\cdot)$ represents spatial reliability, and $\alpha_c$ denotes the channel reliability weight \cite{lukezic2017csrt}. Its major advantage is better robustness and higher tracking precision, especially in the presence of appearance variation and background interference. Its weakness is the high computational cost caused by richer feature modelling and reliability estimation.
 
-\subsection{TLD (Tracking-Learning-Detection)}
-TLD explicitly decomposes the long-term tracking task into tracking, learning, and detection, making it highly robust to full occlusions and objects leaving the camera view.
+\subsection{TLD}
+TLD contains three modules: tracking, learning, and detection. The tracking module is commonly implemented using Median-Flow to estimate short-term motion and detect tracking failure; the detection module scans the full image by sliding windows and cascaded classifiers; and the learning module updates the detector online using the P-N learning mechanism \cite{kalal2012tld}. Its advantage is strong long-term recovery ability and better resistance to target disappearance or occlusion. Its disadvantages are high computational cost, strong dependence on successful initialisation, and unstable performance under fast motion or severe disturbance.
+
+\subsection{KCF\textendash TLD}
+In view of the strengths and weaknesses of the above algorithms, this project proposes a KCF\textendash TLD method. Since KCF is much faster than the other two algorithms, KCF is selected as the main tracker. To address the problem that KCF easily loses the target, TLD is used as an auxiliary recovery module. At the beginning of tracking, the target is initialised once; after the target is considered lost, TLD is activated to perform relocalization, and the recovered target box is then used to reinitialise KCF.
 
 \section{Methodology}
 
-\subsection{The Tracking Framework}
-A custom Python framework was developed to standardize the input/output for each tracker and log telemetry data (e.g., bounding box coordinates, processing time).
+\subsection{Proposed KCF\textendash TLD Algorithm}
+The proposed method is described below.
 
-\subsection{Benchmark Setup}
-The evaluation utilizes a benchmarking script (\texttt{uav123\_benchmark.py}) to process video sequences and aggregate tracking results.
+\begin{quote}
+Initialise KCF with the first frame and initial bounding box. For each subsequent frame, first attempt KCF tracking. If the KCF result is reliable, output it and continue. Otherwise, increase the KCF failure counter. Once the failure counter reaches the activation threshold, enter recovery mode and initialise TLD. During recovery mode, call TLD only at scheduled intervals. Reject recovery candidates that are too far from the last valid target state. Accept a TLD recovery only after repeated and mutually consistent detections. Then reinitialise KCF using the recovered box and return to normal tracking mode. If recovery persists beyond the maximum allowed duration, terminate recovery mode and reset the failure state.
+\end{quote}
+
+The algorithm spends most of its runtime on high-speed KCF tracking. TLD is called only when KCF becomes unstable or loses the target, so that the hybrid method can improve the success rate while avoiding the heavy cost of running TLD continuously.
+
+\subsection{KCF as the Base Tracker}
+As the base tracker, KCF uses circulant matrices and kernel ridge regression to achieve efficient computation in the frequency domain. Given a base sample $x$, cyclic shifts of the sample form the training set, and the regression target $y$ is Gaussian-shaped. In each frame, the location with the maximum response is taken as the new target position. This makes KCF highly suitable for real-time UAV tracking.
+
+\subsection{TLD as the Recovery Tracker}
+As the recovery algorithm, TLD is responsible for relocalization after target loss. A recovery candidate is accepted only when it satisfies overlap constraints with the last valid target box and passes continuous consistency checks. After the recovery box is accepted, KCF is reinitialized with the corrected box and the system returns to normal high-speed tracking.
+
+\subsection{Fusion Strategy}
+This method does not force KCF and TLD to contribute equally on every frame. Instead, the two algorithms are assigned different roles according to their strengths. KCF is responsible for primary tracking, while TLD is responsible for relocalization after failure. Therefore, the main objective of this design is not simply to make every frame more accurate, but to increase the probability of finding the target again once it has been lost.
+
+\subsubsection{Design Logic}
+The design is based on the complementarity of KCF and TLD. KCF is extremely fast and performs well when frame-to-frame target change is limited. However, once severe occlusion, disappearance, drift, or strong scale change occurs, KCF is often unable to recover by itself. TLD, although significantly slower, has explicit redetection capability. Therefore, the proposed method aims to retain the high FPS advantage of KCF while using TLD as a corrective mechanism when KCF fails.
+
+\subsubsection{Triggering TLD}
+The most important design issue is how to determine that KCF is no longer reliable. In the current implementation, TLD is triggered when the number of consecutive KCF failures or abnormal outputs reaches 2. An output is considered unreliable under two conditions. First, the IoU between the current box and the previous valid box is below 0.15. Second, the area ratio between the current box and the previous valid box falls outside the interval from 0.5 to 2.0. These thresholds are intended to detect obvious spatial discontinuity and sudden scale instability.
+
+\subsubsection{Controlling TLD Overhead}
+Since TLD can significantly reduce overall FPS, the algorithm limits how long and how often TLD is allowed to run. In recovery mode, TLD is not executed on every frame, but only once every 3 frames. In addition, the recovery state is protected by a timeout mechanism: the maximum duration of a single recovery phase is 120 frames. Once this limit is exceeded, the recovery state is forcibly terminated so that the system cannot remain trapped in slow recovery indefinitely.
+
+\subsubsection{Validating TLD Recovery}
+The algorithm applies three constraints before accepting a TLD recovery box. First, the candidate must have an IoU of at least 0.3 with the last valid target box. Second, the recovery is not accepted immediately after one detection; instead, it must be confirmed over 2 consecutive detections. Third, the two consecutive candidates must also be sufficiently consistent with each other, with IoU not below 0.45. These checks are designed to reduce false recovery and improve the reliability of relocalization.
 
 \section{Results and Analysis}
 
 \subsection{Performance Metrics}
-Tracking accuracy was measured by comparing the predicted bounding boxes against the ground-truth data in the benchmark datasets.
+This paper evaluates the algorithms mainly through IoU, success, precision, and FPS. At least three figures and tables should be provided in the final version, including a success curve, a precision curve, and an aggregate comparison table.
 
 \subsection{Algorithm Comparison}
-This section will present the aggregated leaderboard results, analyzing the performance of CSRT, KCF, TLD, and the combined Fusion approach across various test sequences.
+The experimental part of the paper should objectively compare KCF, CSRT, TLD, and the proposed KCF\textendash TLD method, with particular emphasis on the proposed method. The purpose is to show, under a unified benchmark, how different tracking principles lead to clear differences in speed, resource demand, robustness, and recovery capability.
 
 \section{Discussion}
-
-An analysis of why certain algorithms outperformed others under specific conditions (e.g., occlusion, fast motion, scale variation).
+The discussion focuses on why each algorithm behaves differently. KCF is attractive because of its speed, but it is weak after target loss. CSRT is usually more stable, but slower and more computationally expensive. TLD has explicit recovery capability, but its heavy computation reduces real-time performance. The KCF\textendash TLD design therefore attempts to combine the speed of KCF with the relocalization ability of TLD in a role-based way rather than a full fusion way.
 
 \section{Conclusion}
+This paper proposes a possible way to combine KCF and TLD for UAV visual tracking. The main objective is to solve the problem that KCF cannot recover after target loss. In the proposed method, KCF is used during the normal stage to maintain a high frame rate, while TLD is triggered when KCF is considered unstable or has lost the target. Through continuous confirmation and threshold constraints, the method attempts to improve the reliability of recovery.
 
-This section summarizes the findings of the comparative study, validating the practical applications of each algorithm. Future work could explore deep learning-based trackers or optimizing the current implementations.
-
-The key requirement for AQA is consistency\cite{henriques2015kcf}. This template gives you a clean and repeatable structure for in-text citations and the final reference list.
+Experimental comparison is intended to show that KCF\textendash TLD can improve KCF in terms of IoU, success, precision, and robustness while trying to preserve the high frame rate characteristic of KCF. However, the method still has clear limitations. Since the normal stage is still dominated by KCF, the upper performance bound remains constrained by KCF itself. In addition, TLD recovery is not always stable, so it cannot be treated as a completely reliable module. Future work may improve the instability judgement, strengthen recovery validation, and introduce stronger intelligent models to verify whether the recovered box is consistent with motion direction and short-term scale variation.
 
 \printbibliography[title={References}]
 
