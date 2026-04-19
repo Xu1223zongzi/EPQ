@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import math
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -47,7 +48,15 @@ def normalize_bbox_for_tracker(bbox, frame_shape=None):
     if bbox is None:
         return None
 
-    x, y, w, h = [int(round(float(value))) for value in bbox]
+    try:
+        values = [float(value) for value in bbox[:4]]
+    except (TypeError, ValueError):
+        return None
+
+    if len(values) < 4 or any(not math.isfinite(value) for value in values):
+        return None
+
+    x, y, w, h = [int(round(value)) for value in values]
     w = max(1, w)
     h = max(1, h)
 
@@ -212,6 +221,12 @@ def bbox_area(bbox):
     return max(0.0, bbox[2] * bbox[3])
 
 
+def bbox_aspect_ratio(bbox):
+    width = max(float(bbox[2]), 1.0)
+    height = max(float(bbox[3]), 1.0)
+    return width / height
+
+
 def bbox_iou(box_a, box_b):
     ax1, ay1, aw, ah = box_a
     bx1, by1, bw, bh = box_b
@@ -252,6 +267,10 @@ class KCFWithTLDRelocalizationTracker:
         unstable_continuity_iou_floor=0.15,
         unstable_area_ratio_floor=0.5,
         unstable_area_ratio_ceiling=2.0,
+        unstable_center_shift_ratio_ceiling=2.5,
+        tld_candidate_area_ratio_floor=0.35,
+        tld_candidate_area_ratio_ceiling=2.8,
+        tld_candidate_aspect_ratio_floor=0.6,
         recovery_max_frames=120,
     ):
         self.kcf_factory = kcf_factory
@@ -265,6 +284,10 @@ class KCFWithTLDRelocalizationTracker:
         self.unstable_continuity_iou_floor = float(unstable_continuity_iou_floor)
         self.unstable_area_ratio_floor = float(unstable_area_ratio_floor)
         self.unstable_area_ratio_ceiling = float(unstable_area_ratio_ceiling)
+        self.unstable_center_shift_ratio_ceiling = float(unstable_center_shift_ratio_ceiling)
+        self.tld_candidate_area_ratio_floor = float(tld_candidate_area_ratio_floor)
+        self.tld_candidate_area_ratio_ceiling = float(tld_candidate_area_ratio_ceiling)
+        self.tld_candidate_aspect_ratio_floor = float(tld_candidate_aspect_ratio_floor)
         self.recovery_max_frames = max(1, int(recovery_max_frames))
 
         self.kcf_tracker = None
@@ -296,19 +319,40 @@ class KCFWithTLDRelocalizationTracker:
         return self.tld_tracker is not None
 
     def _is_recovery_mode_active(self):
-        return self.tld_tracker is not None or self.pending_recovery_bbox is not None
+        return self.recovery_started_frame is not None or self.pending_recovery_bbox is not None
 
     def _is_kcf_prediction_reliable(self, candidate_bbox):
+        if candidate_bbox is None:
+            return False
+
         if self.last_bbox is None:
             return True
 
         continuity_iou = bbox_iou(candidate_bbox, self.last_bbox)
         area_ratio = bbox_area(candidate_bbox) / max(bbox_area(self.last_bbox), 1.0)
+        last_bbox_size = max(bbox_area(self.last_bbox) ** 0.5, 1.0)
+        center_shift_ratio = bbox_distance(candidate_bbox, self.last_bbox) / last_bbox_size
         if continuity_iou >= self.unstable_continuity_iou_floor:
             return True
-        if self.unstable_area_ratio_floor <= area_ratio <= self.unstable_area_ratio_ceiling:
+        if (
+            self.unstable_area_ratio_floor <= area_ratio <= self.unstable_area_ratio_ceiling
+            and center_shift_ratio <= self.unstable_center_shift_ratio_ceiling
+        ):
             return True
         return False
+
+    def _is_tld_candidate_plausible(self, candidate_bbox, reference_bbox):
+        if candidate_bbox is None or reference_bbox is None:
+            return False
+
+        area_ratio = bbox_area(candidate_bbox) / max(bbox_area(reference_bbox), 1.0)
+        if not (self.tld_candidate_area_ratio_floor <= area_ratio <= self.tld_candidate_area_ratio_ceiling):
+            return False
+
+        candidate_ratio = bbox_aspect_ratio(candidate_bbox)
+        reference_ratio = bbox_aspect_ratio(reference_bbox)
+        aspect_ratio_similarity = min(candidate_ratio, reference_ratio) / max(candidate_ratio, reference_ratio)
+        return aspect_ratio_similarity >= self.tld_candidate_aspect_ratio_floor
 
     def _init_tracker(self, factory, frame, bbox):
         tracker = factory()
@@ -327,6 +371,8 @@ class KCFWithTLDRelocalizationTracker:
 
     def init(self, frame, bbox):
         bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+        if bbox is None:
+            return False
         self.frame_counter = 0
         self.last_probe_frame = 0
         self.last_recovery_attempt_frame = 0
@@ -347,7 +393,11 @@ class KCFWithTLDRelocalizationTracker:
             return None
 
         candidate_bbox = normalize_bbox_for_tracker(bbox, frame.shape)
+        if candidate_bbox is None:
+            return None
         if reference_bbox is not None and bbox_iou(candidate_bbox, reference_bbox) < self.relocalize_iou_floor:
+            return None
+        if reference_bbox is not None and not self._is_tld_candidate_plausible(candidate_bbox, reference_bbox):
             return None
         return candidate_bbox
 
@@ -374,8 +424,8 @@ class KCFWithTLDRelocalizationTracker:
         if self.kcf_failure_streak < self.tld_activation_failures:
             return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
 
-        if self.tld_tracker is None:
-            if not self._arm_tld(frame):
+        if self.recovery_started_frame is None:
+            if self.tld_tracker is None and not self._arm_tld(frame):
                 self.last_source = "TLD_INIT_FAIL"
                 return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
             self.last_source = "TLD_ARMED"
@@ -444,6 +494,10 @@ class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
         unstable_continuity_iou_floor=0.15,
         unstable_area_ratio_floor=0.5,
         unstable_area_ratio_ceiling=2.0,
+        unstable_center_shift_ratio_ceiling=2.5,
+        tld_candidate_area_ratio_floor=0.35,
+        tld_candidate_area_ratio_ceiling=2.8,
+        tld_candidate_aspect_ratio_floor=0.6,
         recovery_max_frames=120,
     ):
         self.kcf = KCFTrackerAdapter()
@@ -457,6 +511,10 @@ class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
         self.unstable_continuity_iou_floor = unstable_continuity_iou_floor
         self.unstable_area_ratio_floor = unstable_area_ratio_floor
         self.unstable_area_ratio_ceiling = unstable_area_ratio_ceiling
+        self.unstable_center_shift_ratio_ceiling = unstable_center_shift_ratio_ceiling
+        self.tld_candidate_area_ratio_floor = tld_candidate_area_ratio_floor
+        self.tld_candidate_area_ratio_ceiling = tld_candidate_area_ratio_ceiling
+        self.tld_candidate_aspect_ratio_floor = tld_candidate_aspect_ratio_floor
         self.recovery_max_frames = recovery_max_frames
 
     @property
@@ -476,6 +534,10 @@ class KCFWithTLDRelocalizationAdapter(TrackerAdapter):
             unstable_continuity_iou_floor=self.unstable_continuity_iou_floor,
             unstable_area_ratio_floor=self.unstable_area_ratio_floor,
             unstable_area_ratio_ceiling=self.unstable_area_ratio_ceiling,
+            unstable_center_shift_ratio_ceiling=self.unstable_center_shift_ratio_ceiling,
+            tld_candidate_area_ratio_floor=self.tld_candidate_area_ratio_floor,
+            tld_candidate_area_ratio_ceiling=self.tld_candidate_area_ratio_ceiling,
+            tld_candidate_aspect_ratio_floor=self.tld_candidate_aspect_ratio_floor,
             recovery_max_frames=self.recovery_max_frames,
         )
 
@@ -1015,6 +1077,9 @@ class BaseTelloTrackerApp(ABC):
             return False
 
         bbox = normalize_bbox_for_tracker(bbox, self.current_frame.shape)
+        if bbox is None:
+            print("目标框无效，请重新框选。")
+            return False
         x, y, w, h = bbox
         if w < MIN_BOX_SIZE or h < MIN_BOX_SIZE:
             print("目标框太小，请重新框选。")
@@ -1212,9 +1277,14 @@ class BaseTelloTrackerApp(ABC):
                     ok, bbox = self.tracker.update(self.current_frame)
                     tracking_ok = ok
                     if ok:
-                        self.tracking_bbox = tuple(int(v) for v in bbox)
-                        rc_command, metrics = self.compute_auto_rc(self.tracking_bbox)
-                    else:
+                        normalized_bbox = normalize_bbox_for_tracker(bbox, self.current_frame.shape)
+                        if normalized_bbox is None:
+                            ok = False
+                            tracking_ok = False
+                        else:
+                            self.tracking_bbox = normalized_bbox
+                            rc_command, metrics = self.compute_auto_rc(self.tracking_bbox)
+                    if not ok:
                         print("目标丢失，请重新框选。")
                         self.target_lost_count += 1
                         events.append("target_lost")

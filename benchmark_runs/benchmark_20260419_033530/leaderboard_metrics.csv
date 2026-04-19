@@ -1,0 +1,13 @@
+﻿category,metric,direction,metric_key,KCF,KCF_TLD
+Overlap Quality,Mean IoU,Higher is better,average_iou,0.021503716120232597,0.01728777137236845
+Overlap Quality,Overlap AUC,Higher is better,overlap_auc,0.030648064806480645,0.026772052205220526
+Overlap Quality,IoU >= 0.50 Rate,Higher is better,overlap_recall_iou_0_5,0.013636363636363636,0.013636363636363636
+Overlap Quality,IoU >= 0.75 Rate,Higher is better,overlap_recall_iou_0_75,0.010227272727272727,0.010227272727272727
+Localization Accuracy,Mean Center Error (px),Lower is better,average_center_error,96.97314781351331,141.51660910086147
+Localization Accuracy,Median Center Error (px),Lower is better,median_center_error,92.51614983707651,137.5222438702125
+Localization Accuracy,Center Error <= 20px Rate,Higher is better,center_precision_20px,0.05056818181818182,0.03920454545454546
+Localization Accuracy,Normalized Precision@0.05,Higher is better,normalized_precision_0_05,0.08920454545454545,0.0659090909090909
+Tracking Stability,Tracking Availability,Higher is better,tracking_availability,0.011931818181818182,0.030113636363636363
+Tracking Stability,Failure Frame Ratio,Lower is better,failure_frame_ratio,0.9880681818181818,0.9698863636363636
+Tracking Stability,Longest Failure Streak Ratio,Lower is better,longest_failure_streak_ratio,0.9880681818181818,0.6090909090909091
+Computational Efficiency,Average FPS,Higher is better,average_fps,62.487067717210635,230.3601317650264

@@ -44,9 +44,16 @@ python CSRT/CSRT.py --sequence-dir D:/UAV123/data_seq/UAV123/bike1 --annotation-
 当前 summary.json 会输出以下 benchmark 指标：
 
 - average_iou
+- overlap_auc
 - average_center_error
-- success_rate_iou_0_5
-- precision_20px
+- median_center_error
+- overlap_recall_iou_0_5
+- overlap_recall_iou_0_75
+- center_precision_20px
+- normalized_precision_0_05
+- tracking_availability
+- failure_frame_ratio
+- longest_failure_streak_ratio
 
 ## UAV123 批量测评与论文图表
 
@@ -60,10 +67,16 @@ python uav123_benchmark.py --uav123-root D:/论文/UAV123/data_seq/UAV123 --algo
 
 - per_sequence_results.csv：每个序列、每个算法的详细结果
 - aggregate_results.csv：算法总体平均结果
+- leaderboard_metrics.csv：按指标转置后的总表 CSV
 - leaderboard.md：论文风格 Markdown 总表
 - leaderboard.png：论文风格 PNG 总表
-- success_plot.png：Success 曲线
-- precision_plot.png：Precision 曲线
+- overlap_curve.png：IoU 阈值召回曲线
+- center_precision_curve.png：像素中心误差阈值曲线
+- normalized_precision_curve.png：归一化中心误差阈值曲线
+- overlap_metrics.png：重叠类指标分组图
+- localization_metrics.png：定位类指标分组图
+- stability_metrics.png：稳定性指标分组图
+- efficiency_metrics.png：效率指标分组图
 
 如果只想测试几个指定序列，例如 bike1、car1_s、uav3：
 

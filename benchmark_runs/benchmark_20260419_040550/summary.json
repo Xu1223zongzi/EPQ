@@ -1,0 +1,98 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260419_040550",
+  "sequence_count": 2,
+  "algorithms": [
+    "KCF",
+    "KCF_TLD"
+  ],
+  "metric_groups": [
+    {
+      "key": "overlap",
+      "title": "Overlap Quality",
+      "plot_file": "overlap_metrics.png",
+      "metrics": [
+        "average_iou",
+        "overlap_auc",
+        "overlap_recall_iou_0_5",
+        "overlap_recall_iou_0_75"
+      ]
+    },
+    {
+      "key": "localization",
+      "title": "Localization Accuracy",
+      "plot_file": "localization_metrics.png",
+      "metrics": [
+        "average_center_error",
+        "median_center_error",
+        "center_precision_20px",
+        "normalized_precision_0_05"
+      ]
+    },
+    {
+      "key": "stability",
+      "title": "Tracking Stability",
+      "plot_file": "stability_metrics.png",
+      "metrics": [
+        "tracking_availability",
+        "failure_frame_ratio",
+        "longest_failure_streak_ratio"
+      ]
+    },
+    {
+      "key": "efficiency",
+      "title": "Computational Efficiency",
+      "plot_file": "efficiency_metrics.png",
+      "metrics": [
+        "average_fps"
+      ]
+    }
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 1,
+      "total_frames": 3085,
+      "average_iou": 0.020014,
+      "overlap_auc": 0.029372,
+      "average_center_error": 230.467867,
+      "median_center_error": 244.324579,
+      "overlap_recall_iou_0_5": 0.01329,
+      "overlap_recall_iou_0_75": 0.004862,
+      "center_precision_20px": 0.038898,
+      "normalized_precision_0_05": 0.040194,
+      "tracking_availability": 0.180551,
+      "failure_frame_ratio": 0.819449,
+      "longest_failure_streak_ratio": 0.312156,
+      "average_fps": 105.218863
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_count": 1,
+      "total_frames": 3085,
+      "average_iou": 0.015396,
+      "overlap_auc": 0.024552,
+      "average_center_error": 103.537877,
+      "median_center_error": 101.530784,
+      "overlap_recall_iou_0_5": 0.005835,
+      "overlap_recall_iou_0_75": 0.004862,
+      "center_precision_20px": 0.021718,
+      "normalized_precision_0_05": 0.048947,
+      "tracking_availability": 0.004538,
+      "failure_frame_ratio": 0.995462,
+      "longest_failure_streak_ratio": 0.995462,
+      "average_fps": 101.711761
+    }
+  ],
+  "failures": [
+    {
+      "algorithm": "KCF",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_key": "bike2",
+      "error": "cannot convert float NaN to integer"
+    }
+  ]
+}

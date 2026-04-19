@@ -162,10 +162,16 @@ Set-Location "c:\Users\ROG\PyCharmMiscProject\gitproject\EPQ"; & "c:/Users/ROG/P
 This generates one shared result set containing all selected algorithms in:
 
 - `aggregate_results.csv`
+- `leaderboard_metrics.csv`
 - `leaderboard.md`
 - `leaderboard.png`
-- `success_plot.png`
-- `precision_plot.png`
+- `overlap_curve.png`
+- `center_precision_curve.png`
+- `normalized_precision_curve.png`
+- `overlap_metrics.png`
+- `localization_metrics.png`
+- `stability_metrics.png`
+- `efficiency_metrics.png`
 
 ### Full Evaluation
 
@@ -203,8 +209,14 @@ Every benchmark run creates a new folder under `benchmark_runs/benchmark_YYYYMMD
 
 - `per_sequence_results.csv`
 - `aggregate_results.csv`
+- `leaderboard_metrics.csv`
 - `leaderboard.md`
 - `leaderboard.png`
-- `success_plot.png`
-- `precision_plot.png`
+- `overlap_curve.png`
+- `center_precision_curve.png`
+- `normalized_precision_curve.png`
+- `overlap_metrics.png`
+- `localization_metrics.png`
+- `stability_metrics.png`
+- `efficiency_metrics.png`
 - `summary.json`

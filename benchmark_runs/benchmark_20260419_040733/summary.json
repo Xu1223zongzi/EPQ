@@ -1,0 +1,87 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260419_040733",
+  "sequence_count": 2,
+  "algorithms": [
+    "KCF",
+    "KCF_TLD"
+  ],
+  "metric_groups": [
+    {
+      "key": "overlap",
+      "title": "Overlap Quality",
+      "plot_file": "overlap_metrics.png",
+      "metrics": [
+        "average_iou",
+        "overlap_auc",
+        "overlap_recall_iou_0_5",
+        "overlap_recall_iou_0_75"
+      ]
+    },
+    {
+      "key": "localization",
+      "title": "Localization Accuracy",
+      "plot_file": "localization_metrics.png",
+      "metrics": [
+        "average_center_error",
+        "median_center_error",
+        "center_precision_20px",
+        "normalized_precision_0_05"
+      ]
+    },
+    {
+      "key": "stability",
+      "title": "Tracking Stability",
+      "plot_file": "stability_metrics.png",
+      "metrics": [
+        "tracking_availability",
+        "failure_frame_ratio",
+        "longest_failure_streak_ratio"
+      ]
+    },
+    {
+      "key": "efficiency",
+      "title": "Computational Efficiency",
+      "plot_file": "efficiency_metrics.png",
+      "metrics": [
+        "average_fps"
+      ]
+    }
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 2,
+      "total_frames": 1433,
+      "average_iou": 0.060984,
+      "overlap_auc": 0.069521,
+      "average_center_error": 105.86426,
+      "median_center_error": 113.118067,
+      "overlap_recall_iou_0_5": 0.046755,
+      "overlap_recall_iou_0_75": 0.024424,
+      "center_precision_20px": 0.157013,
+      "normalized_precision_0_05": 0.189812,
+      "tracking_availability": 0.198186,
+      "failure_frame_ratio": 0.801814,
+      "longest_failure_streak_ratio": 0.460572,
+      "average_fps": 113.044105
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_count": 2,
+      "total_frames": 1433,
+      "average_iou": 0.036601,
+      "overlap_auc": 0.04567,
+      "average_center_error": 87.388958,
+      "median_center_error": 87.575635,
+      "overlap_recall_iou_0_5": 0.030705,
+      "overlap_recall_iou_0_75": 0.024424,
+      "center_precision_20px": 0.092812,
+      "normalized_precision_0_05": 0.159107,
+      "tracking_availability": 0.026518,
+      "failure_frame_ratio": 0.973482,
+      "longest_failure_streak_ratio": 0.973482,
+      "average_fps": 247.793763
+    }
+  ],
+  "failures": []
+}

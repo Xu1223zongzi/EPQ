@@ -1,6 +1,7 @@
 import argparse
 import csv
 import json
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,197 @@ ALGORITHM_FACTORIES = {
 }
 
 
+OVERLAP_CURVE_THRESHOLDS = [index / 100.0 for index in range(0, 101)]
+CENTER_PRECISION_THRESHOLDS = list(range(0, 51))
+NORMALIZED_PRECISION_THRESHOLDS = [index / 200.0 for index in range(0, 51)]
+
+METRIC_GROUPS = [
+    {
+        "key": "overlap",
+        "title": "Overlap Quality",
+        "plot_file": "overlap_metrics.png",
+        "metrics": [
+            "average_iou",
+            "overlap_auc",
+            "overlap_recall_iou_0_5",
+            "overlap_recall_iou_0_75",
+        ],
+    },
+    {
+        "key": "localization",
+        "title": "Localization Accuracy",
+        "plot_file": "localization_metrics.png",
+        "metrics": [
+            "average_center_error",
+            "median_center_error",
+            "center_precision_20px",
+            "normalized_precision_0_05",
+        ],
+    },
+    {
+        "key": "stability",
+        "title": "Tracking Stability",
+        "plot_file": "stability_metrics.png",
+        "metrics": [
+            "tracking_availability",
+            "failure_frame_ratio",
+            "longest_failure_streak_ratio",
+        ],
+    },
+    {
+        "key": "efficiency",
+        "title": "Computational Efficiency",
+        "plot_file": "efficiency_metrics.png",
+        "metrics": [
+            "average_fps",
+        ],
+    },
+]
+
+METRIC_SPECS = {
+    "average_iou": {
+        "label": "Mean IoU",
+        "direction": "higher",
+        "formatter": "float4",
+        "axis_label": "Mean IoU",
+    },
+    "overlap_auc": {
+        "label": "Overlap AUC",
+        "direction": "higher",
+        "formatter": "float4",
+        "axis_label": "AUC",
+    },
+    "overlap_recall_iou_0_5": {
+        "label": "IoU >= 0.50 Rate",
+        "direction": "higher",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "overlap_recall_iou_0_75": {
+        "label": "IoU >= 0.75 Rate",
+        "direction": "higher",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "average_center_error": {
+        "label": "Mean Center Error (px)",
+        "direction": "lower",
+        "formatter": "float3",
+        "axis_label": "Pixels",
+    },
+    "median_center_error": {
+        "label": "Median Center Error (px)",
+        "direction": "lower",
+        "formatter": "float3",
+        "axis_label": "Pixels",
+    },
+    "center_precision_20px": {
+        "label": "Center Error <= 20px Rate",
+        "direction": "higher",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "normalized_precision_0_05": {
+        "label": "Normalized Precision@0.05",
+        "direction": "higher",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "tracking_availability": {
+        "label": "Tracking Availability",
+        "direction": "higher",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "failure_frame_ratio": {
+        "label": "Failure Frame Ratio",
+        "direction": "lower",
+        "formatter": "percent",
+        "axis_label": "Rate",
+    },
+    "longest_failure_streak_ratio": {
+        "label": "Longest Failure Streak Ratio",
+        "direction": "lower",
+        "formatter": "percent",
+        "axis_label": "Ratio",
+    },
+    "average_fps": {
+        "label": "Average FPS",
+        "direction": "higher",
+        "formatter": "float2",
+        "axis_label": "FPS",
+    },
+}
+
+
+def iter_metric_keys():
+    for group in METRIC_GROUPS:
+        for metric_key in group["metrics"]:
+            yield metric_key
+
+
+def compute_overlap_auc(ious):
+    if not ious:
+        return 0.0
+    curve = [sum(1 for value in ious if value >= threshold) / len(ious) for threshold in OVERLAP_CURVE_THRESHOLDS]
+    return sum(curve) / len(curve)
+
+
+def compute_rate(values, predicate):
+    if not values:
+        return 0.0
+    return sum(1 for value in values if predicate(value)) / len(values)
+
+
+def compute_median(values):
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def format_percent(value):
+    return f"{value * 100:.2f}%"
+
+
+def format_metric_value(metric_key, value):
+    formatter = METRIC_SPECS[metric_key]["formatter"]
+    if formatter == "percent":
+        return format_percent(value)
+    if formatter == "float2":
+        return f"{value:.2f}"
+    if formatter == "float3":
+        return f"{value:.3f}"
+    return f"{value:.4f}"
+
+
+def format_direction(direction):
+    return "Higher is better" if direction == "higher" else "Lower is better"
+
+
+def is_rate_metric(metric_key):
+    return METRIC_SPECS[metric_key]["formatter"] == "percent"
+
+
+def build_metric_matrix_rows(aggregate_rows):
+    rows = []
+    for group in METRIC_GROUPS:
+        for metric_key in group["metrics"]:
+            row = {
+                "category": group["title"],
+                "metric": METRIC_SPECS[metric_key]["label"],
+                "direction": format_direction(METRIC_SPECS[metric_key]["direction"]),
+                "metric_key": metric_key,
+            }
+            for aggregate_row in aggregate_rows:
+                row[aggregate_row["algorithm"]] = aggregate_row[metric_key]
+            rows.append(row)
+    return rows
+
+
 def create_benchmark_adapter(algorithm_name, args):
     if algorithm_name == "KCF_TLD":
         return KCFWithTLDRelocalizationAdapter(
@@ -46,6 +238,7 @@ def create_benchmark_adapter(algorithm_name, args):
             unstable_continuity_iou_floor=args.kcf_tld_unstable_continuity_iou_floor,
             unstable_area_ratio_floor=args.kcf_tld_unstable_area_ratio_floor,
             unstable_area_ratio_ceiling=args.kcf_tld_unstable_area_ratio_ceiling,
+            unstable_center_shift_ratio_ceiling=2.5,
             recovery_max_frames=args.kcf_tld_recovery_max_frames,
         )
     return ALGORITHM_FACTORIES[algorithm_name]()
@@ -151,10 +344,14 @@ def evaluate_sequence(
 
     ious = [bbox_iou(initial_bbox, initial_bbox)]
     center_errors = [0.0]
+    normalized_center_errors = [0.0]
     tracked_frames = 1
-    success_frames = 1
+    update_ok_flags = [1]
     last_bbox = initial_bbox
     tracker_source_counts = {"init": 1}
+    frame_diagonal = math.hypot(frame_width, frame_height)
+    longest_failure_streak = 0
+    current_failure_streak = 0
 
     for processed_index, (frame_path, annotation) in enumerate(zip(images[1:], annotations[1:]), start=2):
         if sequence_timeout_seconds is not None and (time.perf_counter() - started_at) > sequence_timeout_seconds:
@@ -170,17 +367,29 @@ def evaluate_sequence(
         tracker_source_counts[tracker_source] = tracker_source_counts.get(tracker_source, 0) + 1
         if ok:
             predicted_bbox = normalize_bbox_for_tracker(bbox, resized.shape)
-            last_bbox = predicted_bbox
-            tracked_frames += 1
+            if predicted_bbox is not None:
+                last_bbox = predicted_bbox
+                tracked_frames += 1
+                update_ok_flags.append(1)
+                current_failure_streak = 0
+            else:
+                predicted_bbox = last_bbox
+                update_ok_flags.append(0)
+                current_failure_streak += 1
+                longest_failure_streak = max(longest_failure_streak, current_failure_streak)
+                tracker_source = f"{tracker_source}_INVALID"
+                tracker_source_counts[tracker_source] = tracker_source_counts.get(tracker_source, 0) + 1
         else:
             predicted_bbox = last_bbox
+            update_ok_flags.append(0)
+            current_failure_streak += 1
+            longest_failure_streak = max(longest_failure_streak, current_failure_streak)
 
         iou = bbox_iou(predicted_bbox, gt_bbox)
         center_error = bbox_distance(predicted_bbox, gt_bbox)
         ious.append(iou)
         center_errors.append(center_error)
-        if ok:
-            success_frames += 1
+        normalized_center_errors.append(center_error / max(frame_diagonal, 1e-9))
 
         if processed_index % progress_every == 0 or processed_index == len(images):
             print(
@@ -192,9 +401,16 @@ def evaluate_sequence(
     elapsed = time.perf_counter() - started_at
     frame_count = len(ious)
     average_iou = sum(ious) / frame_count
+    overlap_auc = compute_overlap_auc(ious)
     average_center_error = sum(center_errors) / frame_count
-    success_iou_05 = sum(1 for value in ious if value >= 0.5) / frame_count
-    precision_20px = sum(1 for value in center_errors if value <= 20.0) / frame_count
+    median_center_error = compute_median(center_errors)
+    overlap_recall_iou_0_5 = compute_rate(ious, lambda value: value >= 0.5)
+    overlap_recall_iou_0_75 = compute_rate(ious, lambda value: value >= 0.75)
+    center_precision_20px = compute_rate(center_errors, lambda value: value <= 20.0)
+    normalized_precision_0_05 = compute_rate(normalized_center_errors, lambda value: value <= 0.05)
+    tracking_availability = sum(update_ok_flags) / frame_count
+    failure_frame_ratio = 1.0 - tracking_availability
+    longest_failure_streak_ratio = longest_failure_streak / frame_count
     average_fps = frame_count / elapsed if elapsed > 1e-9 else 0.0
 
     return {
@@ -204,14 +420,21 @@ def evaluate_sequence(
         "annotation_file": str(sequence_spec["annotation_file"]),
         "frames": frame_count,
         "tracked_frames": tracked_frames,
-        "success_frames": success_frames,
         "average_iou": average_iou,
+        "overlap_auc": overlap_auc,
         "average_center_error": average_center_error,
-        "success_rate_iou_0_5": success_iou_05,
-        "precision_20px": precision_20px,
+        "median_center_error": median_center_error,
+        "overlap_recall_iou_0_5": overlap_recall_iou_0_5,
+        "overlap_recall_iou_0_75": overlap_recall_iou_0_75,
+        "center_precision_20px": center_precision_20px,
+        "normalized_precision_0_05": normalized_precision_0_05,
+        "tracking_availability": tracking_availability,
+        "failure_frame_ratio": failure_frame_ratio,
+        "longest_failure_streak_ratio": longest_failure_streak_ratio,
         "average_fps": average_fps,
         "ious": ious,
         "center_errors": center_errors,
+        "normalized_center_errors": normalized_center_errors,
         "tracker_source_counts": tracker_source_counts,
     }
 
@@ -224,26 +447,17 @@ def aggregate_results(per_sequence_results):
     aggregate = []
     for algorithm, items in grouped.items():
         total_frames = sum(item["frames"] for item in items)
-        weighted_iou = sum(item["average_iou"] * item["frames"] for item in items)
-        weighted_center_error = sum(item["average_center_error"] * item["frames"] for item in items)
-        weighted_success = sum(item["success_rate_iou_0_5"] * item["frames"] for item in items)
-        weighted_precision = sum(item["precision_20px"] * item["frames"] for item in items)
-        weighted_fps = sum(item["average_fps"] * item["frames"] for item in items)
+        aggregate_row = {
+            "algorithm": algorithm,
+            "sequence_count": len(items),
+            "total_frames": total_frames,
+        }
+        for metric_key in iter_metric_keys():
+            weighted_value = sum(item[metric_key] * item["frames"] for item in items)
+            aggregate_row[metric_key] = weighted_value / total_frames if total_frames else 0.0
+        aggregate.append(aggregate_row)
 
-        aggregate.append(
-            {
-                "algorithm": algorithm,
-                "sequence_count": len(items),
-                "total_frames": total_frames,
-                "average_iou": weighted_iou / total_frames if total_frames else 0.0,
-                "average_center_error": weighted_center_error / total_frames if total_frames else 0.0,
-                "success_rate_iou_0_5": weighted_success / total_frames if total_frames else 0.0,
-                "precision_20px": weighted_precision / total_frames if total_frames else 0.0,
-                "average_fps": weighted_fps / total_frames if total_frames else 0.0,
-            }
-        )
-
-    aggregate.sort(key=lambda item: item["average_iou"], reverse=True)
+    aggregate.sort(key=lambda item: item["overlap_auc"], reverse=True)
     return aggregate
 
 
@@ -255,86 +469,89 @@ def write_csv(file_path, fieldnames, rows):
             writer.writerow(row)
 
 
-def format_percent(value):
-    return f"{value * 100:.2f}"
-
-
 def build_markdown_table(aggregate_rows):
-    header = [
-        "| Algorithm | Avg IoU | Success@0.5 (%) | Precision@20px (%) | Avg Center Error | Avg FPS | Sequences |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
-    body = []
+    algorithms = [row["algorithm"] for row in aggregate_rows]
+    sections = ["# Benchmark Leaderboard", ""]
+
+    meta_lines = ["| Item | Value |", "| --- | --- |"]
     for row in aggregate_rows:
-        body.append(
-            "| {algorithm} | {average_iou:.4f} | {success} | {precision} | {average_center_error:.3f} | {average_fps:.2f} | {sequence_count} |".format(
-                algorithm=row["algorithm"],
-                average_iou=row["average_iou"],
-                success=format_percent(row["success_rate_iou_0_5"]),
-                precision=format_percent(row["precision_20px"]),
-                average_center_error=row["average_center_error"],
-                average_fps=row["average_fps"],
-                sequence_count=row["sequence_count"],
-            )
+        meta_lines.append(
+            f"| {row['algorithm']} | Sequences={row['sequence_count']}, Frames={row['total_frames']} |"
         )
-    return "\n".join(header + body) + "\n"
+    sections.extend(meta_lines)
+    sections.append("")
+
+    for group in METRIC_GROUPS:
+        sections.append(f"## {group['title']}")
+        header = "| Metric | Direction | " + " | ".join(algorithms) + " |"
+        align = "| --- | --- | " + " | ".join([":---:" for _ in algorithms]) + " |"
+        sections.extend([header, align])
+        for metric_key in group["metrics"]:
+            row_values = [
+                format_metric_value(metric_key, algorithm_row[metric_key])
+                for algorithm_row in aggregate_rows
+            ]
+            sections.append(
+                "| {metric_label} | {direction} | {values} |".format(
+                    metric_label=METRIC_SPECS[metric_key]["label"],
+                    direction=format_direction(METRIC_SPECS[metric_key]["direction"]),
+                    values=" | ".join(row_values),
+                )
+            )
+        sections.append("")
+
+    return "\n".join(sections).strip() + "\n"
 
 
 def render_table_png(aggregate_rows, output_path):
-    columns = [
-        "Algorithm",
-        "Avg IoU",
-        "Success@0.5 (%)",
-        "Precision@20px (%)",
-        "Avg Center Error",
-        "Avg FPS",
-        "Seqs",
-    ]
-    cell_text = []
-    for row in aggregate_rows:
-        cell_text.append(
-            [
-                row["algorithm"],
-                f"{row['average_iou']:.4f}",
-                format_percent(row["success_rate_iou_0_5"]),
-                format_percent(row["precision_20px"]),
-                f"{row['average_center_error']:.3f}",
-                f"{row['average_fps']:.2f}",
-                str(row["sequence_count"]),
-            ]
-        )
+    algorithms = [row["algorithm"] for row in aggregate_rows]
+    fig, axes = plt.subplots(len(METRIC_GROUPS), 1, figsize=(13.5, 2.2 + len(METRIC_GROUPS) * 2.7))
+    if len(METRIC_GROUPS) == 1:
+        axes = [axes]
 
-    fig, ax = plt.subplots(figsize=(12, 0.8 + max(1, len(cell_text)) * 0.55))
-    ax.axis("off")
-    table = ax.table(cellText=cell_text, colLabels=columns, loc="center", cellLoc="center")
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.35)
-    for (row_index, col_index), cell in table.get_celld().items():
-        if row_index == 0:
-            cell.set_text_props(weight="bold")
-            cell.set_facecolor("#dbeafe")
-        elif row_index % 2 == 0:
-            cell.set_facecolor("#f8fafc")
-    fig.tight_layout()
+    for axis, group in zip(axes, METRIC_GROUPS):
+        axis.axis("off")
+        columns = ["Metric", "Direction"] + algorithms
+        cell_text = []
+        for metric_key in group["metrics"]:
+            row = [
+                METRIC_SPECS[metric_key]["label"],
+                format_direction(METRIC_SPECS[metric_key]["direction"]),
+            ]
+            row.extend(format_metric_value(metric_key, aggregate_row[metric_key]) for aggregate_row in aggregate_rows)
+            cell_text.append(row)
+
+        table = axis.table(cellText=cell_text, colLabels=columns, loc="center", cellLoc="center")
+        table.auto_set_font_size(False)
+        table.set_fontsize(9.5)
+        table.scale(1, 1.25)
+        axis.set_title(group["title"], fontsize=12, fontweight="bold", pad=10)
+        for (row_index, col_index), cell in table.get_celld().items():
+            if row_index == 0:
+                cell.set_text_props(weight="bold")
+                cell.set_facecolor("#dbeafe")
+            elif row_index % 2 == 0:
+                cell.set_facecolor("#f8fafc")
+
+    fig.suptitle("Benchmark Leaderboard", fontsize=14, fontweight="bold", y=0.995)
+    fig.tight_layout(rect=(0, 0, 1, 0.98))
     fig.savefig(output_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
 
 
-def render_success_plot(per_sequence_results, output_path):
-    thresholds = [index / 100.0 for index in range(0, 101)]
+def render_overlap_curve(per_sequence_results, output_path):
     grouped = {}
     for result in per_sequence_results:
         grouped.setdefault(result["algorithm"], []).extend(result["ious"])
 
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     for algorithm, values in grouped.items():
-        curve = [sum(1 for value in values if value >= threshold) / len(values) for threshold in thresholds]
-        ax.plot(thresholds, curve, linewidth=2.0, label=algorithm)
+        curve = [sum(1 for value in values if value >= threshold) / len(values) for threshold in OVERLAP_CURVE_THRESHOLDS]
+        ax.plot(OVERLAP_CURVE_THRESHOLDS, curve, linewidth=2.0, label=algorithm)
 
-    ax.set_title("UAV123 Success Plot")
+    ax.set_title("UAV123 Overlap Recall Curve")
     ax.set_xlabel("IoU Threshold")
-    ax.set_ylabel("Success Rate")
+    ax.set_ylabel("Overlap Recall")
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, 1.0)
     ax.grid(True, linestyle="--", alpha=0.35)
@@ -344,20 +561,19 @@ def render_success_plot(per_sequence_results, output_path):
     plt.close(fig)
 
 
-def render_precision_plot(per_sequence_results, output_path):
-    thresholds = list(range(0, 51))
+def render_center_precision_curve(per_sequence_results, output_path):
     grouped = {}
     for result in per_sequence_results:
         grouped.setdefault(result["algorithm"], []).extend(result["center_errors"])
 
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
     for algorithm, values in grouped.items():
-        curve = [sum(1 for value in values if value <= threshold) / len(values) for threshold in thresholds]
-        ax.plot(thresholds, curve, linewidth=2.0, label=algorithm)
+        curve = [sum(1 for value in values if value <= threshold) / len(values) for threshold in CENTER_PRECISION_THRESHOLDS]
+        ax.plot(CENTER_PRECISION_THRESHOLDS, curve, linewidth=2.0, label=algorithm)
 
-    ax.set_title("UAV123 Precision Plot")
+    ax.set_title("UAV123 Center Precision Curve")
     ax.set_xlabel("Center Error Threshold (px)")
-    ax.set_ylabel("Precision")
+    ax.set_ylabel("Localization Recall")
     ax.set_xlim(0, 50)
     ax.set_ylim(0.0, 1.0)
     ax.grid(True, linestyle="--", alpha=0.35)
@@ -365,6 +581,70 @@ def render_precision_plot(per_sequence_results, output_path):
     fig.tight_layout()
     fig.savefig(output_path, dpi=220)
     plt.close(fig)
+
+
+def render_normalized_precision_curve(per_sequence_results, output_path):
+    grouped = {}
+    for result in per_sequence_results:
+        grouped.setdefault(result["algorithm"], []).extend(result["normalized_center_errors"])
+
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    for algorithm, values in grouped.items():
+        curve = [
+            sum(1 for value in values if value <= threshold) / len(values)
+            for threshold in NORMALIZED_PRECISION_THRESHOLDS
+        ]
+        ax.plot(NORMALIZED_PRECISION_THRESHOLDS, curve, linewidth=2.0, label=algorithm)
+
+    ax.set_title("UAV123 Normalized Precision Curve")
+    ax.set_xlabel("Normalized Center Error Threshold")
+    ax.set_ylabel("Localization Recall")
+    ax.set_xlim(0.0, NORMALIZED_PRECISION_THRESHOLDS[-1])
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, linestyle="--", alpha=0.35)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=220)
+    plt.close(fig)
+
+
+def render_metric_group_plots(aggregate_rows, output_dir):
+    algorithms = [row["algorithm"] for row in aggregate_rows]
+    colors = ["#2563eb", "#0f766e", "#ca8a04", "#b91c1c", "#7c3aed", "#0891b2"]
+
+    for group in METRIC_GROUPS:
+        metric_count = len(group["metrics"])
+        fig, axes = plt.subplots(metric_count, 1, figsize=(9.5, 2.8 + metric_count * 2.2))
+        if metric_count == 1:
+            axes = [axes]
+
+        for axis, metric_key in zip(axes, group["metrics"]):
+            values = [row[metric_key] for row in aggregate_rows]
+            bars = axis.bar(algorithms, values, color=colors[: len(algorithms)], alpha=0.88)
+            axis.set_title(
+                f"{METRIC_SPECS[metric_key]['label']} ({format_direction(METRIC_SPECS[metric_key]['direction'])})",
+                fontsize=11,
+            )
+            axis.set_ylabel(METRIC_SPECS[metric_key]["axis_label"])
+            axis.grid(True, axis="y", linestyle="--", alpha=0.3)
+            if is_rate_metric(metric_key):
+                axis.set_ylim(0.0, 1.0)
+            for label in axis.get_xticklabels():
+                label.set_rotation(0)
+            for bar, value in zip(bars, values):
+                axis.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    bar.get_height(),
+                    format_metric_value(metric_key, value),
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
+
+        fig.suptitle(group["title"], fontsize=13, fontweight="bold", y=0.995)
+        fig.tight_layout(rect=(0, 0, 1, 0.98))
+        fig.savefig(output_dir / group["plot_file"], dpi=220)
+        plt.close(fig)
 
 
 def build_argument_parser():
@@ -461,6 +741,7 @@ def main():
                 print(f"[{algorithm_name}] {sequence_spec['sequence_key']} 失败: {exc}", flush=True)
 
     aggregate_rows = aggregate_results(per_sequence_results)
+    metric_matrix_rows = build_metric_matrix_rows(aggregate_rows)
 
     per_sequence_csv_rows = []
     for result in per_sequence_results:
@@ -471,11 +752,17 @@ def main():
                 "sequence_dir_name": result["sequence_dir_name"],
                 "frames": result["frames"],
                 "tracked_frames": result["tracked_frames"],
-                "success_frames": result["success_frames"],
                 "average_iou": round(result["average_iou"], 6),
+                "overlap_auc": round(result["overlap_auc"], 6),
                 "average_center_error": round(result["average_center_error"], 6),
-                "success_rate_iou_0_5": round(result["success_rate_iou_0_5"], 6),
-                "precision_20px": round(result["precision_20px"], 6),
+                "median_center_error": round(result["median_center_error"], 6),
+                "overlap_recall_iou_0_5": round(result["overlap_recall_iou_0_5"], 6),
+                "overlap_recall_iou_0_75": round(result["overlap_recall_iou_0_75"], 6),
+                "center_precision_20px": round(result["center_precision_20px"], 6),
+                "normalized_precision_0_05": round(result["normalized_precision_0_05"], 6),
+                "tracking_availability": round(result["tracking_availability"], 6),
+                "failure_frame_ratio": round(result["failure_frame_ratio"], 6),
+                "longest_failure_streak_ratio": round(result["longest_failure_streak_ratio"], 6),
                 "average_fps": round(result["average_fps"], 6),
                 "annotation_file": result["annotation_file"],
             }
@@ -489,9 +776,16 @@ def main():
                 "sequence_count": row["sequence_count"],
                 "total_frames": row["total_frames"],
                 "average_iou": round(row["average_iou"], 6),
+                "overlap_auc": round(row["overlap_auc"], 6),
                 "average_center_error": round(row["average_center_error"], 6),
-                "success_rate_iou_0_5": round(row["success_rate_iou_0_5"], 6),
-                "precision_20px": round(row["precision_20px"], 6),
+                "median_center_error": round(row["median_center_error"], 6),
+                "overlap_recall_iou_0_5": round(row["overlap_recall_iou_0_5"], 6),
+                "overlap_recall_iou_0_75": round(row["overlap_recall_iou_0_75"], 6),
+                "center_precision_20px": round(row["center_precision_20px"], 6),
+                "normalized_precision_0_05": round(row["normalized_precision_0_05"], 6),
+                "tracking_availability": round(row["tracking_availability"], 6),
+                "failure_frame_ratio": round(row["failure_frame_ratio"], 6),
+                "longest_failure_streak_ratio": round(row["longest_failure_streak_ratio"], 6),
                 "average_fps": round(row["average_fps"], 6),
             }
         )
@@ -504,11 +798,17 @@ def main():
             "sequence_dir_name",
             "frames",
             "tracked_frames",
-            "success_frames",
             "average_iou",
+            "overlap_auc",
             "average_center_error",
-            "success_rate_iou_0_5",
-            "precision_20px",
+            "median_center_error",
+            "overlap_recall_iou_0_5",
+            "overlap_recall_iou_0_75",
+            "center_precision_20px",
+            "normalized_precision_0_05",
+            "tracking_availability",
+            "failure_frame_ratio",
+            "longest_failure_streak_ratio",
             "average_fps",
             "annotation_file",
         ],
@@ -521,24 +821,39 @@ def main():
             "sequence_count",
             "total_frames",
             "average_iou",
+            "overlap_auc",
             "average_center_error",
-            "success_rate_iou_0_5",
-            "precision_20px",
+            "median_center_error",
+            "overlap_recall_iou_0_5",
+            "overlap_recall_iou_0_75",
+            "center_precision_20px",
+            "normalized_precision_0_05",
+            "tracking_availability",
+            "failure_frame_ratio",
+            "longest_failure_streak_ratio",
             "average_fps",
         ],
         aggregate_csv_rows,
+    )
+    write_csv(
+        run_dir / "leaderboard_metrics.csv",
+        ["category", "metric", "direction", "metric_key", *[row["algorithm"] for row in aggregate_rows]],
+        metric_matrix_rows,
     )
 
     markdown_table = build_markdown_table(aggregate_rows)
     (run_dir / "leaderboard.md").write_text(markdown_table, encoding="utf-8")
     render_table_png(aggregate_rows, run_dir / "leaderboard.png")
-    render_success_plot(per_sequence_results, run_dir / "success_plot.png")
-    render_precision_plot(per_sequence_results, run_dir / "precision_plot.png")
+    render_overlap_curve(per_sequence_results, run_dir / "overlap_curve.png")
+    render_center_precision_curve(per_sequence_results, run_dir / "center_precision_curve.png")
+    render_normalized_precision_curve(per_sequence_results, run_dir / "normalized_precision_curve.png")
+    render_metric_group_plots(aggregate_rows, run_dir)
 
     summary = {
         "run_dir": str(run_dir),
         "sequence_count": len(sequence_specs),
         "algorithms": args.algorithms,
+        "metric_groups": METRIC_GROUPS,
         "aggregate_results": aggregate_csv_rows,
         "failures": failures,
     }
@@ -546,10 +861,14 @@ def main():
 
     print("批量测评完成")
     print(f"总表 CSV: {run_dir / 'aggregate_results.csv'}")
+    print(f"转置指标表 CSV: {run_dir / 'leaderboard_metrics.csv'}")
     print(f"论文风格 Markdown 表: {run_dir / 'leaderboard.md'}")
     print(f"论文风格 PNG 表: {run_dir / 'leaderboard.png'}")
-    print(f"Success 曲线: {run_dir / 'success_plot.png'}")
-    print(f"Precision 曲线: {run_dir / 'precision_plot.png'}")
+    print(f"Overlap 曲线: {run_dir / 'overlap_curve.png'}")
+    print(f"Center Precision 曲线: {run_dir / 'center_precision_curve.png'}")
+    print(f"Normalized Precision 曲线: {run_dir / 'normalized_precision_curve.png'}")
+    for group in METRIC_GROUPS:
+        print(f"{group['title']} 图: {run_dir / group['plot_file']}")
     if failures:
         print(f"失败条目数: {len(failures)}")
 
