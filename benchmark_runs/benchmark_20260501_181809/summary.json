@@ -1,0 +1,123 @@
+{
+  "run_dir": "benchmark_runs\\benchmark_20260501_181809",
+  "sequence_count": 2,
+  "algorithms": [
+    "KCF",
+    "CSRT",
+    "TLD",
+    "KCF_TLD"
+  ],
+  "metric_groups": [
+    {
+      "key": "overlap",
+      "title": "Overlap Quality",
+      "plot_file": "overlap_metrics.png",
+      "metrics": [
+        "average_iou",
+        "overlap_auc",
+        "overlap_recall_iou_0_5",
+        "overlap_recall_iou_0_75"
+      ]
+    },
+    {
+      "key": "localization",
+      "title": "Localization Accuracy",
+      "plot_file": "localization_metrics.png",
+      "metrics": [
+        "average_center_error",
+        "median_center_error",
+        "center_precision_20px",
+        "normalized_precision_0_05"
+      ]
+    },
+    {
+      "key": "stability",
+      "title": "Tracking Stability",
+      "plot_file": "stability_metrics.png",
+      "metrics": [
+        "tracking_availability",
+        "failure_frame_ratio",
+        "longest_failure_streak_ratio"
+      ]
+    },
+    {
+      "key": "efficiency",
+      "title": "Computational Efficiency",
+      "plot_file": "efficiency_metrics.png",
+      "metrics": [
+        "average_fps"
+      ]
+    }
+  ],
+  "aggregate_results": [
+    {
+      "algorithm": "CSRT",
+      "sequence_count": 2,
+      "total_frames": 618,
+      "average_iou": 0.383591,
+      "overlap_auc": 0.386427,
+      "average_center_error": 15.407876,
+      "median_center_error": 10.590427,
+      "overlap_recall_iou_0_5": 0.368932,
+      "overlap_recall_iou_0_75": 0.090615,
+      "center_precision_20px": 0.826861,
+      "normalized_precision_0_05": 0.872168,
+      "tracking_availability": 1.0,
+      "failure_frame_ratio": 0.0,
+      "longest_failure_streak_ratio": 0.0,
+      "average_fps": 84.740632
+    },
+    {
+      "algorithm": "TLD",
+      "sequence_count": 2,
+      "total_frames": 618,
+      "average_iou": 0.153355,
+      "overlap_auc": 0.159489,
+      "average_center_error": 107.96343,
+      "median_center_error": 94.837436,
+      "overlap_recall_iou_0_5": 0.063107,
+      "overlap_recall_iou_0_75": 0.008091,
+      "center_precision_20px": 0.289644,
+      "normalized_precision_0_05": 0.42233,
+      "tracking_availability": 1.0,
+      "failure_frame_ratio": 0.0,
+      "longest_failure_streak_ratio": 0.0,
+      "average_fps": 56.575135
+    },
+    {
+      "algorithm": "KCF",
+      "sequence_count": 2,
+      "total_frames": 618,
+      "average_iou": 0.044169,
+      "overlap_auc": 0.05311,
+      "average_center_error": 83.531415,
+      "median_center_error": 84.749851,
+      "overlap_recall_iou_0_5": 0.038835,
+      "overlap_recall_iou_0_75": 0.029126,
+      "center_precision_20px": 0.11165,
+      "normalized_precision_0_05": 0.187702,
+      "tracking_availability": 0.033981,
+      "failure_frame_ratio": 0.966019,
+      "longest_failure_streak_ratio": 0.966019,
+      "average_fps": 321.735125
+    },
+    {
+      "algorithm": "KCF_TLD",
+      "sequence_count": 2,
+      "total_frames": 618,
+      "average_iou": 0.043807,
+      "overlap_auc": 0.052869,
+      "average_center_error": 98.852513,
+      "median_center_error": 95.513379,
+      "overlap_recall_iou_0_5": 0.038835,
+      "overlap_recall_iou_0_75": 0.029126,
+      "center_precision_20px": 0.11165,
+      "normalized_precision_0_05": 0.187702,
+      "tracking_availability": 0.050162,
+      "failure_frame_ratio": 0.949838,
+      "longest_failure_streak_ratio": 0.537217,
+      "average_fps": 107.365829
+    }
+  ],
+  "failures": []
+}

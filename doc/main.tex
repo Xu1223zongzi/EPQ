@@ -11,8 +11,9 @@
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{subcaption}
-\usepackage{listings}
+\usepackage{tikz}
 \usepackage{xcolor}
+\usepackage{pdflscape}
 \usepackage[
 	backend=biber,
 	style=gb7714-2015,
@@ -22,7 +23,7 @@
 	maxbibnames=99,
 	maxcitenames=2,
 	date=year,
-	doi=false,
+	doi=true,
 	isbn=false,
 	eprint=false,
 	url=true
@@ -44,391 +45,415 @@
 }
 
 \graphicspath{{figures/}}
-
-\lstdefinelanguage{MatlabCode}{
-	language=Matlab,
-	morekeywords={function,end,ifft2,fft2,real,conj,sum,exp,abs,numel}
-}
-
-\lstdefinelanguage{PseudoCode}{
-	morekeywords={Input,Output,Initialize,Set,for,each,if,then,else,continue,return,end,clear,mark,reinitialize},
-	sensitive=false,
-	morecomment=[l]{//}
-}
-
-\lstset{
-	basicstyle=\ttfamily\small,
-	keywordstyle=\bfseries,
-	commentstyle=\itshape,
-	columns=fullflexible,
-	keepspaces=true,
-	breaklines=true,
-	breakatwhitespace=false,
-	showstringspaces=false,
-	frame=none
-}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
 
 \setstretch{1.5}
 \setcounter{secnumdepth}{3}
 
-\title{Comparative Analysis of KCF, CSRT, and TLD for UAV Tracking with a KCF\textendash TLD Relocalization Strategy}
-\author{Your Name}
+\title{A Hybrid Tracker Combining Kernelized Correlation Filter and Tracking\textendash Learning\textendash Detection for UAV Tracking: Comparison with Kernelized Correlation Filter, Discriminative Correlation Filter with Channel and Spatial Reliability, and Tracking\textendash Learning\textendash Detection}
+\author{Frank Xv}
 \date{\today}
 
 \begin{document}
 
 \maketitle
-
 \tableofcontents
-\newpage
+
 
 \section{Introduction}
-This paper has two linked aims. One is to compare KCF, CSRT, and TLD in a way that's technically grounded but still easy to follow; the other is to introduce a hybrid KCF\textendash TLD tracker that borrows the main strengths of both methods without forcing them to work all the time on every frame. In the proposed design, KCF stays in charge during normal tracking, while TLD is called only after KCF becomes unreliable or simply loses the target. So, the goal isn't to make the system look more complicated than it needs to be --- it's to keep KCF's speed and, honestly, improve the chance of getting the target back.
+Although discriminative visual tracking has developed rapidly and now includes correlation-filter variants, Siamese architectures, and stronger optimisation-based trackers, it remains useful to return to a smaller set of classical methods when the aim is to compare design logic rather than to list the strongest leaderboard entries \cite{smeulders2014survey,bertinetto2016siamfc,danelljan2017eco,danelljan2019atom}. For UAV-style tasks in particular, this kind of comparison is still meaningful, because speed, localisation quality, and post-failure recovery are rarely improved to the same degree by one method alone \cite{fan2022uav,gao2019deeprelative}. Among the classical representatives considered here, the Kernelized Correlation Filter (KCF) proposed by Henriques et al. \cite{henriques2015kcf} achieves high efficiency by combining circulant matrices, ridge regression, and the kernel trick in the Fourier domain; its background can also be understood in relation to earlier correlation-filter work such as MOSSE \cite{bolme2010mosse}. The Discriminative Correlation Filter with Channel and Spatial Reliability (CSRT) proposed by Luke\v{z}i\'c et al. \cite{lukezic2017csrt} extends the same broad discriminative framework by introducing channel reliability and spatial reliability so that robustness can be improved. Tracking\textendash Learning\textendash Detection (TLD) proposed by Kalal et al. \cite{kalal2012tld} follows a different route by combining tracking, learning, and detection, and by updating its detector online to adapt to appearance variation.
 
-Under the rapid expansion of the low-altitude economy, visual tracking has become an important part of UAV navigation, inspection, surveillance, and autonomous interaction. These scenes are demanding. Onboard computing power is limited. The camera shakes. Viewpoints change. Background clutter appears unexpectedly. Occlusion happens. Targets can disappear for a short while and then come back. That's why discriminative tracking algorithms still matter a lot in engineering practice.
+Although these are all classic discriminative tracker algorithms, the differences between them are very obvious. Whether it is their basic principles, performance priorities, or operational behavior and recovery capabilities, they are completely different. For those who are not familiar with the field of tracking, it is often difficult to understand these differences just from the names in benchmark tests. A tracker that looks attractive because of its speed may become weak or even completely lost after occlusion. A more precise tracker requires more computation, not to mention it takes too much time. A tracker that can re-detect the target is still too slow to remain active as the main tracker throughout the sequence. This is the difference between them.
 
-KCF, proposed by Henriques et al., turns correlation-filter learning into an efficient frequency-domain problem by using circulant matrices and the kernel trick, so it's widely known for very high speed \cite{henriques2015kcf}. TLD, proposed by Kalal et al., follows a very different path because it combines short-term tracking, online learning, and long-term detection in order to preserve re-detection after failure \cite{kalal2012tld}; CSRT, proposed by Luke\v{z}i\'c et al., stays closer to the correlation-filter family, but adds channel reliability and spatial reliability so that more trustworthy features and regions receive more weight \cite{lukezic2017csrt}. Interestingly, all three are discriminative trackers, yet their internal mechanisms lead to very different trade-offs in speed, robustness, and recovery.
-
-Readers outside the tracking field don't always see those differences clearly from code or benchmark tables alone. A tracker may look attractive on one metric, then turn out to be unsuitable as soon as the task changes. KCF is fast, but it struggles after target loss. CSRT is steadier in difficult frames, but that extra stability costs more computation. TLD can re-detect targets, but its long-term module can make runtime fluctuate badly. As a result, a comparison at the level of principle, behaviour, and benchmark evidence is still necessary if these classical trackers are to be understood in a practical UAV setting.
+This paper therefore analyses KCF, CSRT, and TLD first at the level of principle and algorithm design, with the aim of giving a clearer and more accessible comparison of their differences. On that basis, it then proposes a hybrid tracker that combines KCF and TLD, referred to below as KCF\textendash TLD. The motivation does not lie in simply putting two classical methods together. Rather, it comes from a practical imbalance between them: KCF is very fast during ordinary tracking, but it becomes weak after target loss, whereas TLD offers recovery ability but is too slow to remain active as the main tracker throughout the whole sequence. The proposed design therefore assigns them different roles, so that KCF handles routine high-speed tracking while TLD is called only when recovery becomes necessary.
 
 \section{Literature Review}
-From the viewpoint of modern discriminative tracking, the algorithms discussed here can be grouped into three broad lines: kernelized correlation filters such as KCF, reliability-aware discriminative correlation filters such as CSRT, and long-term tracking-learning-detection frameworks such as TLD \cite{bai2021review}. Later work pushed these lines in several directions --- scale adaptation, spatial regularisation, reliable patches, complementary learners, deeper appearance models, and so on \cite{bibi2015multitemplate,danelljan2015srdcf,zhang2014stc,li2015reliablepatch,bertinetto2016staple,guo2017dynamicsiamese,gao2019deeprelative,danelljan2019atom,kristan2019vot}. Still, the original KCF, CSRT, and TLD papers are the most useful anchors for this study because each one answers the same core question in a different way: how should a tracker balance speed, robustness, and recovery?
+Current research on discriminative visual tracking has expanded in many directions, but at the basic mechanism level, it is still useful to distinguish three directly related approaches \cite{smeulders2014survey}. The first is kernelized correlation filters, with the clearest representative algorithm being KCF. The second type of algorithm still falls within the correlation filter framework, but enhances robustness through channel reliability and spatial reliability; the representative of this type is CSRT. The third approach combines tracking, learning, and detection, placing more emphasis on long-term recovery methods, namely TLD. In fact, later research has not eliminated these distinctions, but has continuously deepened them through improvements in scale handling, spatial regularization, reliable patch selection, complementary learners, twin matching, and stronger appearance modeling \cite{bibi2015multitemplate,danelljan2015srdcf,zhang2014stc,li2015reliablepatch,bertinetto2016staple,bertinetto2016siamfc,guo2017dynamicsiamese,danelljan2017eco,gao2019deeprelative,danelljan2019atom,kristan2019vot}.
+
+This review therefore concerns the three major original papers of these algorithms. The main purpose of the review is to cite relevant research, to summarize the contributions of each original algorithm, their strengths and weaknesses, and the reasons why such differences are more important for later KCF\textendash TLD designs.
 
 \subsection{KCF: High-Speed Correlation Filtering}
-In practical UAV tracking, KCF is attractive when real-time performance matters more than long-term recovery. It's light. It can keep a high frame rate on ordinary hardware. Its locality assumption also works well when inter-frame motion is moderate. But that same assumption creates its best-known weakness: once severe occlusion, abrupt displacement, or obvious drift occurs, KCF often loses the target and can't really recover it by itself. Later variants tried to ease that weakness through richer features and scale modelling \cite{wang2018scale,tang2023siamkcf,chen2023improvedkcf,zhang2017cnnkcf}, but the original limitation is still conceptually important.
+KCF can be understood in a relatively direct way as a correlation-filter tracker built around an efficient discriminative learning process. As Henriques et al. explain \cite{henriques2015kcf}, once cyclic shifts of a target patch are recycled into a dense training set and the circulant structure is processed in the Fourier domain, the cost of the corresponding ridge-regression problem is reduced substantially. In that sense, KCF extends the earlier correlation-filter line represented by MOSSE while also making the formulation mathematically more concise and flexible \cite{bolme2010mosse}. The importance of KCF therefore lies not only in empirical speed, but also in the fact that its speed follows from a remarkably transparent mathematical construction.
 
-Henriques et al. \cite{henriques2015kcf} proposed KCF as a high-speed tracker built on the algebraic structure of circulant matrices. By generating dense translated samples through cyclic shifts of a base patch and diagonalising the resulting system in the Fourier domain, the method turns ridge regression into efficient element-wise computation; surprisingly, that simple reformulation was enough to deliver a major speed gain while still keeping competitive accuracy among classical trackers of its time. So, the contribution of the original paper isn't just raw efficiency --- it's also a clear proof that correlation-filter tracking can be both mathematically neat and practically deployable.
+In its standard form, the regression objective can be written as
+\[
+w = (X^TX + \lambda I)^{-1}X^TY,
+\]
+where $X$ is the sample matrix, $Y$ is the regression target, and $\lambda$ is the regularisation parameter. Combining the kernel trick with the diagonalisation property of circulant matrices under the discrete Fourier transform, KCF reduces computations and can be performed at very high frame rate.
+
+Its advantages are also fairly easy to understand. KCF has high computational efficiency, and through FFT-based filtering it can maintain fast short-term tracking under ordinary conditions. The use of kernel mapping also helps it remain reasonably robust against changes in pose, illumination variation, and limited scale fluctuation. At the same time, its limitations are equally clear. KCF performs much better when it continues to follow a target that is still visible than when it has to reacquire a lost one. Severe occlusion, abrupt displacement, strong background interference, or accumulated drift can therefore cause the tracker to fail, and once that happens the original KCF framework offers almost no direct support for relocalization. This weakness remains a central issue even in later improved variants \cite{wang2018scale,tang2023siamkcf,chen2023improvedkcf,zhang2017cnnkcf}.
 
 \subsection{CSRT: Reliability-Aware Correlation Filtering}
-Luke\v{z}i\'c et al. \cite{lukezic2017csrt} proposed CSRT to make discriminative correlation filters more robust by modelling both channel reliability and spatial reliability. Instead of giving equal weight to all channels and all regions, CSRT estimates which channels are informative and which spatial regions are trustworthy. That means the filter is less likely to overfit unstable image areas; it also means the tracker can preserve useful structure better when appearance changes or moderate background interference appears.
+Luke\v{z}i\'c et al. \cite{lukezic2017csrt} proposed CSRT to show that the basic correlation-filter framework can be made more reliable by modelling channel reliability and spatial reliability. Rather than assigning the same weight to every feature channel and image region, CSRT estimates which channels carry useful information and which spatial areas are trustworthy, and then uses these weights during tracking. The original paper is important because it demonstrates that better localisation quality can be obtained without abandoning the discriminative correlation-filter family altogether.
 
-The original CSRT paper matters because it shows that a correlation-filter tracker doesn't have to give up the basic discriminative filtering framework in order to become more robust. In benchmark terms, CSRT often gives better localisation accuracy and steadier boxes than KCF, especially when target boundaries are messy or local appearance changes keep happening. But the cost is obvious --- higher complexity, richer features, and more careful optimisation all make CSRT slower in practice. On the other hand, that slower speed is often acceptable when robustness matters more than raw throughput.
+In practical terms, CSRT is often preferred when the tracking problem demands tighter localisation and greater stability than KCF can usually provide. This tends to matter most when the target changes appearance, when local occlusion interrupts the observation, or when the object boundary is not easy to represent cleanly. The price of that extra care is computational. Because CSRT relies on richer features and a more elaborate reliability mechanism, it runs more slowly than KCF. Its central trade-off is therefore straightforward: it gains robustness by giving up part of KCF's speed advantage.
 
 \subsection{TLD: Long-Term Recovery Through Tracking, Learning, and Detection}
-Kalal et al. \cite{kalal2012tld} introduced TLD as a long-term tracking framework that explicitly separates short-term tracking, online learning, and full-image detection. The short-term module follows the target frame by frame. The detector scans the image to re-localise the target when needed. The learning module updates the detector through P-N learning. The paper is significant because it faces a problem many short-term trackers more or less avoid: what happens after failure?
+The name TLD directly reflects its structure: tracking, learning, and detection are treated as three connected components rather than as one monolithic tracker. In the original formulation of Kalal et al. \cite{kalal2012tld}, the tracking component is built on Median-Flow and uses optical-flow feature trajectories together with forward-backward error to indicate failure; that failure signal itself was formalised in an earlier study on forward-backward checking \cite{kalal2010forwardbackward}. Detection is handled through a sliding-window search supported by a classifier cascade, including variance filtering, random ferns, and nearest-neighbour verification. The learning component then updates the detector online through P-N learning with newly generated positive and negative samples.
 
-In theory, this structure gives TLD a real advantage. It doesn't only search near the previous position, so it can re-detect the target after disappearance, temporary out-of-view motion, or strong occlusion. That's particularly useful in UAV scenes, where viewpoint and scale may change fast. But the same structure creates practical problems too --- full-image detection and online updating raise computational cost, and recovery quality can become unstable in cluttered scenes. Unfortunately, that means TLD is usually better treated as a recovery-oriented mechanism than as a universally efficient main tracker. Later fusion-oriented work points in the same direction \cite{zhang2020tldcn,fan2022uav}.
+What keeps TLD relevant in this comparison is its ability to search for the target again after tracking has already broken down. That matters in situations where occlusion lasts for several frames, the object disappears temporarily, or the tracker has already drifted away from the correct region. In that sense, TLD addresses a part of the problem that short-term local trackers often leave exposed. The same design also creates the main practical difficulty. TLD is heavier than KCF, it runs more slowly, and it becomes much less comfortable in cluttered scenes where false detections or unstable recoveries are easier to trigger. This is why the method is more convincing as a recovery branch than as a continuously active high-speed tracker.
 
 \subsection{Why a Hybrid KCF\textendash TLD Design Is Needed}
-KCF is excellent at keeping pace with a visible target, whereas TLD becomes more meaningful after the target has already been lost. That's why the hybrid strategy is easy to justify. The proposed method gives the two algorithms different jobs: KCF handles the dominant, high-frequency part of tracking, and TLD is reserved for relocalization after failure. This separation is the main conceptual contribution of the method; it treats speed and recovery as different stages of the process, not as things that must be solved by one uniform tracker.
+The differences among KCF, CSRT, and TLD are real, but they do not remove the same practical bottleneck. In difficult UAV scenes, none of the three methods can comfortably hold speed, localisation quality, and post-failure recovery together for long. Occlusion, rapid motion, large scale variation, and heavy background interference can still destabilise all of them, even though the immediate cause of failure is not the same in each case. A second limitation is that their decisions remain dominated by short-term visual evidence, while longer-range motion regularity and scene-level context still play only a small role. That is the point at which a hybrid design becomes worth testing rather than merely describing.
 
-Although KCF, CSRT, and TLD differ substantially, they still share several common limitations. All three can become unstable under strong occlusion, rapid motion, large scale change, and heavy background interference. More importantly, none of them simultaneously optimises real-time speed, precise localisation, and reliable target recovery. KCF prioritises speed but lacks recovery. CSRT improves robustness but costs more. TLD provides recovery, but it often becomes too slow and too unstable to serve as an always-on main tracker.
+The KCF\textendash TLD proposal follows directly from that gap. KCF is fast enough to stay active frame by frame, but it gives little help once the target has genuinely been lost. TLD has the opposite attraction: it offers a chance to find the target again, yet it is too slow to dominate the whole sequence as the main tracker. The combination is therefore based on role assignment rather than constant coexistence. KCF keeps the ordinary tracking stage lightweight, while TLD is called only when KCF has become unstable or has already lost the target. Later UAV-oriented long-term tracking work moves in a comparable direction by keeping a fast correlation-filter core and supplementing it with stronger recovery cues \cite{fan2022uav}. The hybrid is meant to solve a specific division of labour problem, not to merge two trackers for its own sake.
+
+\section{Evaluation}
+This project reached a clear intermediate result. It set up one framework in which KCF, CSRT, TLD, and the proposed KCF\textendash TLD tracker could be compared on the same basis. The mixed concept is advanced from the description stage to the implementation stage and the benchmark data stage. That matters because the work shows the trade-off among speed, localisation quality, recovery ability, and engineering cost in one trial rather than as separate claims. The current KCF\textendash TLD tracker is still weaker than CSRT in precision and stability, but the experiments are already enough to show which part of the design is promising and which part still causes the main loss.
+
+The weak point is now fairly specific. The tracker still relies on local continuity checks and hand-set rules, so its decisions remain narrow when the scene becomes more complicated across time. Adjusting the present thresholds alone is unlikely to change that very much. A stronger next step would be to test better state estimation together with richer information sources, especially longer temporal context, stronger appearance modelling, scene structure, and semantic cues. If that additional information can be integrated well, the same KCF\textendash TLD framework can be tested again as a more dependable tracker rather than only as a proof of concept.
 
 \section{Methodology}
 
 \subsection{Overview of the Proposed Tracker}
-This design is intentionally asymmetric. The algorithm doesn't try to combine KCF and TLD as two continuously active peers. Instead, KCF is used for the part of the task that benefits from high frame-rate locality, while TLD is used for the part that benefits from explicit redetection; in practice, that division is easier to explain, easier to tune, and easier to debug because each module keeps a clear responsibility.
+The proposed KCF\textendash TLD tracker is organised around a practical division of labour rather than around constant parallel fusion. During the normal stage, the system keeps KCF in the leading role because the main engineering priority is still speed. TLD is held back most of the time, not because it is unimportant, but because allowing it to run continuously would erase the main benefit of using a correlation-filter tracker in the first place. Recovery is therefore treated as an exceptional state change instead of a permanent operating mode.
 
-The proposed KCF\textendash TLD tracker is therefore a role-based hybrid design. The user provides one initial bounding box on the first frame. KCF is initialised as the main tracker. The system keeps following the target frame by frame as long as the predicted box remains reliable. Once KCF starts failing repeatedly --- or produces geometrically implausible boxes --- the tracker enters recovery mode. TLD is then initialised from the last reliable box and asked to provide relocalization candidates at fixed intervals rather than every frame. A candidate is accepted only if it satisfies overlap, consistency, and plausibility constraints. Once a recovery is confirmed, KCF is reinitialised and the system returns to fast tracking.
+The algorithm proceeds from the first bound box of the first frame. We start at 1st frame. KCF is initialize first. The latest reliable target box is written as \texttt{last\_bbox}. We return a failure counter, a pending recovery box, and a pending confirmation counter. At most frame we run KCF and check whether the returned box is still reliable. If KCF is still consistent we accpt the result and remove all recovery.
 
-\subsection{KCF Stage}
-As the base tracker, KCF solves a regularised regression problem in the Fourier domain. Given a sample patch $x$ and a Gaussian-shaped response $y$, the correlation filter can be written as
+At the first frame, the initial bounding box is used to initialise KCF and to define the starting reliable state, namely the most recent reliable bounding box. From that point onward, the tracker also maintains a failure counter, a pending recovery box, and a confirmation counter for candidate recoveries. Most frames remain simple: KCF updates the target locally, the returned box is checked for continuity, and a stable result is accepted without further intervention. When that happens, the temporary recovery state is cleared immediately so that the system falls back into its cheapest operating pattern.
+
+The control flow changes only when KCF starts to fail repeatedly or produces boxes that no longer look trustworthy. At that point, the algorithm enters recovery mode, reinitialises TLD from the last reliable target state, and queries it only on scheduled recovery frames. Any candidate produced by TLD is treated cautiously: it must survive overlap, plausibility, and multi-frame consistency checks before it is accepted as a genuine relocalization. Once that confirmation is achieved, KCF is reinitialised from the recovered box and the tracker returns to the fast path. The design goal is to leave the sequence in a lightweight KCF regime for as long as possible, then spend extra computation only when the probability of target loss has become too high.
+
+Figure~\ref{fig:kcf-tld-system-overview} gives a simplified system-level view before the detailed decision diagrams later in this chapter. Its purpose is only to show the main operating states and the direction of control transfer between them.
+
+\begin{figure}[htbp]
+	\centering
+	\resizebox{0.92\textwidth}{!}{%
+	\begin{tikzpicture}[
+		node distance=10mm and 8mm,
+		>=Latex,
+		font=\small,
+		proc/.style={rectangle, rounded corners, draw, align=center, text width=30mm, minimum height=8mm, inner sep=2pt},
+		decision/.style={diamond, aspect=2.1, draw, align=center, text width=24mm, inner sep=1pt, minimum height=10mm},
+		line/.style={->, thick}
+	]
+	\node[proc] (init) {Initialise KCF from the first bounding box};
+	\node[proc, right=of init] (track) {Run KCF for normal local tracking};
+	\node[decision, right=of track] (stable) {Tracking still reliable?};
+	\node[proc, below=of stable] (recover) {Call TLD only in recovery mode};
+	\node[proc, left=of recover] (handover) {Confirm recovery and reinitialise KCF};
+
+	\draw[line] (init) -- (track);
+	\draw[line] (track) -- (stable);
+	\draw[line] (stable) -- node[right] {No} (recover);
+	\draw[line] (recover) -- (handover);
+	\draw[line] (handover) |- (track);
+	\draw[line] (stable.north) -- ++(0,8mm) -| node[pos=0.25,above] {Yes} (track.north);
+	\end{tikzpicture}
+	}
+	\caption{Simplified system-level flow of the proposed KCF\textendash TLD tracker. The detailed threshold confirmation check is expanded later.}
+	\label{fig:kcf-tld-system-overview}
+\end{figure}
+
+\subsection{Tracking and Recovery Stages}
+\subsubsection{Kernelized Correlation Filter stage}
+As the base tracker, KCF follows the standard frequency-domain regression formulation introduced by Henriques et al. \cite{henriques2015kcf}, which itself grows out of the earlier correlation-filter tradition represented by MOSSE \cite{bolme2010mosse}. Given a sample patch $x$ and a Gaussian-shaped response $y$, the correlation filter can be written as
 \[
 \hat{w} = \frac{\hat{x}^{\ast} \odot \hat{y}}{\hat{x}^{\ast} \odot \hat{x} + \lambda},
 \]
 where $\hat{x}$ and $\hat{y}$ are the Fourier transforms of the training sample and desired response, $\odot$ denotes element-wise multiplication, and $\lambda$ is the regularisation term. In each frame, KCF evaluates the response map in a local region around the previous target state and selects the position with the highest response as the new prediction. This keeps the main tracker computationally light and highly responsive.
 
-In the implemented system, KCF is trusted only when its output is considered reliable. Reliability isn't defined by a confidence score from the OpenCV tracker itself. Instead, it is judged through geometric continuity relative to the last reliable box. We noticed that this pragmatic choice works reasonably well because the tracker already stores the previous valid box, so inter-frame overlap, area variation, and centre displacement can be used as a cheap health test.
+In the implemented system, KCF is not treated as reliable by default. Its output is checked against the most recent reliable bounding box by simple geometric continuity rules. In the current implementation, the KCF result is marked as unreliable when its IoU with that reliable box falls below 0.15, when the area ratio falls outside the range from 0.5 to 2.0, or when the box centre shifts too abruptly. The algorithm also waits for repeated failure instead of reacting to one temporary fluctuation. Recovery mode is triggered only when the failure streak reaches 2 frames. This keeps KCF responsible for fast local tracking while avoiding unnecessary recovery activation.
 
-\subsection{TLD Stage}
-This decision reflects the actual performance profile observed in the project. Recent runtime profiling shows that the major efficiency bottleneck on difficult sequences is not KCF but the cost of individual TLD updates. So, the architecture treats TLD as a sparse repair mechanism --- it is allowed to search when necessary, but it isn't allowed to dominate the whole runtime.
+\subsubsection{Tracking\textendash Learning\textendash Detection recovery stage}
+The TLD branch is introduced in order to raise the probability of finding the target again after KCF failure. In the hybrid design, TLD is not expected to carry long-term high-speed tracking. Its role is narrower: it acts as a relocalization mechanism once the KCF stage has become unstable. This design choice follows directly from the strengths and weaknesses identified in the literature review, and it is close in spirit to later UAV-specific efforts that keep a fast base tracker while supplementing it with stronger recovery cues \cite{fan2022uav}.
 
-TLD is used as the recovery module rather than the main tracker. Its job is to produce a new candidate box once KCF can no longer be trusted. In theory, TLD suits this role because it includes a detection component and isn't restricted to purely local motion continuity. But it can be expensive. That said, the framework avoids running it continuously. TLD is armed only after repeated KCF failure, and during recovery it is called on scheduled frames instead of every frame.
+To prevent TLD from dominating the total runtime, recovery mode is deliberately restricted. TLD is initialized only when recovery begins, and it is not updated on every frame thereafter. Instead, recovery is attempted only once every 3 frames in the current implementation. In addition, one recovery episode is limited to at most 120 frames. These restrictions are important because TLD is the main source of slowdown in difficult sequences. Without such limits, the hybrid would lose the speed advantage that motivates the use of KCF in the first place.
 
-\subsection{Fusion Logic and Threshold Design}
-The next question is whether a TLD recovery is trustworthy. The framework uses three main checks. First, a candidate must overlap the last valid target box by at least 0.3 IoU; if it is too far away, it is rejected immediately. Second, one detection is never enough on its own. The tracker stores a pending recovery box and requires repeated confirmation. Third, two consecutive candidates must also be mutually consistent, with an IoU of at least 0.45. In the current implementation, a lightweight plausibility filter is added as well, so the candidate must stay within a reasonable scale range relative to the last valid box and its aspect ratio can't differ too severely. Honestly, this extra filter is meant to be cheap protection rather than a sophisticated verifier.
+\subsection{Thresholds, Decision Logic, and Detailed Flowcharts}
+The fusion part is not designed as a forced blending of two trackers. Instead, it separates the working regions in which each tracker is most useful. KCF handles the main tracking process, whereas TLD is responsible for recovery after loss. The key practical issue is therefore how to decide that KCF is no longer stable enough and how to verify that a TLD recovery box is credible.
 
-The most important design question is how to decide that KCF is no longer stable. In the current implementation, recovery is activated when the number of consecutive KCF failures or abnormal outputs reaches two. An output is considered unreliable if its IoU with the last valid box falls below 0.15, or if its area ratio relative to the last valid box falls outside the interval from 0.5 to 2.0. A supplementary centre-shift constraint is also used, so extremely abrupt position jumps are treated as unreliable even when area variation still looks acceptable.
+In the current system, KCF is treated as unstable when the continuity between the current box and the previous valid box becomes too weak. The judgement is deliberately simple in practice. A box is rejected if its IoU with the previous valid box is below 0.15, and if the area ratio relative to the previous valid box moves outside 0.5 to 2.0. The values were chosen by small pilot tuning during implementation rather than a complete ablation study. A looser IoU floor delays recovery and gets more drift, and a much larger IoU floor makes it impossible to enter recovery. We see the same tradeoff between upper bounds that yield implausible scale jumps, and lower bounds that ignore legitimate target size fluctuations. The same is true if the failure streak is 2 frames, which prevents the system from responding too rapidly to one temporary fluctuation.
 
-Once recovery mode starts, TLD is not allowed to run on every frame. Instead, the system attempts recovery at a fixed interval --- currently every three frames --- and the total duration of a recovery phase is capped at 120 frames. This timeout matters because it stops the tracker from remaining trapped in a long slow state when TLD can't recover the target. These controls are not meant to make TLD fast; they're meant to keep TLD from taking over the entire tracking budget.
+The next problem is how to judge whether the TLD recovery box is correct. What is the next problem to check if the TLD recovery box is valid? Again, it is better to use a cautious sequence of checks than a yes-or-no test. A candidate can only be accepted if it remains within 0.3 IoU of a previous one and is not immediately used. Instead, it must be confirmed over 2 valid recoveries and those two candidates must also coincide to at least 0.45 IoU. These values were chosen for the same practical reasons as instability limits: lower confirmation requires faster handover but more false recoveries, and stricter confirmation makes wrong acceptance less likely.
 
-\subsection{Pseudocode of the Proposed Algorithm}
-Algorithm~\ref{lst:kcf-tld-pseudocode} summarises the full tracking procedure.
+This multi-step confirmation is specially designed to avoid accepting an incorrect recovery box in situations where TLD generates a reasonable but unstable detection. The threshold also reflects a strong awareness of runtime. Recovery mode is not allowed to call TLD continuously, and it cannot continue indefinitely. The recovery interval is 3 frames, and the maximum duration is 120 frames. The goal is to prevent the algorithm from staying stuck in a slow TLD-dominated state for too long.
 
-\begin{lstlisting}[language=PseudoCode,caption={KCF-TLD relocalization tracking},label={lst:kcf-tld-pseudocode}]
-Input:
-    video frames {F1, F2, ..., Fn}
-    initial target bounding box B1 on frame F1
+\subsubsection{Detailed main flowchart}
+Figure~\ref{fig:kcf-tld-main-flow} summarises the overall logic of the proposed KCF\textendash TLD tracker. A flowchart is more appropriate here than a long code listing, because the method is defined mainly by decision paths and state transitions rather than by implementation syntax.
 
-Output:
-    predicted target bounding box Bt for each frame Ft
+\begin{figure}[htbp]
+	\centering
+	\resizebox{0.96\textwidth}{!}{%
+	\begin{tikzpicture}[
+		node distance=6mm and 10mm,
+		>=Latex,
+		font=\small,
+		proc/.style={rectangle, rounded corners, draw, align=center, text width=33mm, minimum height=8mm, inner sep=2pt},
+		decision/.style={diamond, aspect=2, draw, align=center, text width=25mm, inner sep=1pt, minimum height=10mm},
+		startstop/.style={ellipse, draw, align=center, text width=26mm, minimum height=8mm, inner sep=2pt},
+		line/.style={->, thick}
+	]
+	\node[startstop] (start) {Input $F_1$ and $B_1$};
+	\node[proc, below=of start] (initkcf) {Initialize KCF and tracking state};
+	\node[proc, below=of initkcf] (kcfupdate) {Run KCF on current frame};
+	\node[decision, below=of kcfupdate] (reliable) {Reliable KCF box?};
+	\node[proc, left=22mm of reliable] (acceptkcf) {Update the reliable box,\ clear recovery state,\ output KCF box};
+	\node[proc, right=22mm of reliable] (failcount) {Increase failure streak\ and keep the reliable box};
+	\node[decision, below=of failcount] (trigger) {Recovery triggered?};
+	\node[proc, left=22mm of trigger] (keeplast) {Output the reliable box\ and continue};
+	\node[proc, right=22mm of trigger] (armtld) {Initialize TLD from\ the last valid box};
+	\node[proc, below=of armtld] (interval) {Wait for next scheduled\ recovery frame};
+	\node[proc, below=of interval] (probe) {Run TLD and get\ candidate box};
+	\node[decision, below=of probe] (validcand) {Candidate valid?};
+	\node[proc, left=22mm of validcand] (rejectcand) {Reject candidate and\ output last\_bbox};
+	\node[decision, right=22mm of validcand] (confirm) {Repeatedly confirmed?};
+	\node[proc, below=of confirm] (recover) {Accept recovery,\ reinitialize KCF,\ return to normal mode};
+	\node[startstop, below=of recover] (endstep) {Next frame};
 
-1:  Initialize KCF tracker with (F1, B1)
-2:  Set last_bbox <- B1
-3:  Set kcf_failure_streak <- 0
-4:  Set tld_tracker <- null
-5:  Set pending_recovery_bbox <- null
-6:  Set pending_recovery_hits <- 0
+	\draw[line] (start) -- (initkcf);
+	\draw[line] (initkcf) -- (kcfupdate);
+	\draw[line] (kcfupdate) -- (reliable);
+	\draw[line] (reliable) -- node[above] {Yes} (acceptkcf);
+	\draw[line] (reliable) -- node[above] {No} (failcount);
+	\draw[line] (acceptkcf) |- (endstep);
+	\draw[line] (failcount) -- (trigger);
+	\draw[line] (trigger) -- node[above] {No} (keeplast);
+	\draw[line] (keeplast) |- (endstep);
+	\draw[line] (trigger) -- node[above] {Yes} (armtld);
+	\draw[line] (armtld) -- (interval);
+	\draw[line] (interval) -- (probe);
+	\draw[line] (probe) -- (validcand);
+	\draw[line] (validcand) -- node[above] {No} (rejectcand);
+	\draw[line] (rejectcand) |- (endstep);
+	\draw[line] (validcand) -- node[above] {Yes} (confirm);
+	\draw[line] (confirm) -- node[right] {Yes} (recover);
+	\draw[line] (recover) -- (endstep);
+	\draw[line] (confirm.east) -- ++(9mm,0) |- node[pos=0.2,right] {No} (interval.east);
+	\end{tikzpicture}
+	}
+	\caption{Overall flowchart of the proposed KCF\textendash TLD relocalization tracker.}
+	\label{fig:kcf-tld-main-flow}
+\end{figure}
 
-7:  for each frame Ft, t = 2 to n do
-8:      if recovery mode is not active then
-9:          (success, Bkcf) <- KCF.update(Ft)
-10:         if success = true then
-11:             if Bkcf is reliable then
-12:                 last_bbox <- Bkcf
-13:                 kcf_failure_streak <- 0
-14:                 clear all recovery state
-15:                 output Bkcf
-16:                 continue
-17:             else
-18:                 kcf_failure_streak <- kcf_failure_streak + 1
-19:             end if
-20:         else
-21:             kcf_failure_streak <- kcf_failure_streak + 1
-22:         end if
-23:      end if
+\subsubsection{Detailed recovery decision flow}
+Figure~\ref{fig:kcf-tld-recovery-flow} isolates the recovery branch. This part is critical because the usefulness of the hybrid depends less on constant complexity than on whether recovery is triggered at sensible moments and whether doubtful TLD candidates are kept from being accepted too early.
 
-24:      if kcf_failure_streak < activation threshold then
-25:          output last_bbox
-26:          continue
-27:      end if
+\begin{figure}[htbp]
+	\centering
+	\resizebox{0.96\textwidth}{!}{%
+	\begin{tikzpicture}[
+		node distance=6mm and 10mm,
+		>=Latex,
+		font=\small,
+		proc/.style={rectangle, rounded corners, draw, align=center, text width=33mm, minimum height=8mm, inner sep=2pt},
+		decision/.style={diamond, aspect=2, draw, align=center, text width=25mm, inner sep=1pt, minimum height=10mm},
+		startstop/.style={ellipse, draw, align=center, text width=24mm, minimum height=8mm, inner sep=2pt},
+		line/.style={->, thick}
+	]
+	\node[startstop] (start) {Recovery frame};
+	\node[proc, below=of start] (updatetld) {Run TLD update};
+	\node[decision, below=of updatetld] (success) {Update successful?};
+	\node[proc, left=22mm of success] (lost) {Clear pending state\ and output the reliable box};
+	\node[decision, right=22mm of success] (ioucheck) {IoU with last valid\ box high enough?};
+	\node[decision, below=of ioucheck] (plausible) {Geometrically plausible?};
+	\node[decision, below=of plausible] (pending) {Pending candidate\ already exists?};
+	\node[proc, left=22mm of pending] (storefirst) {Store candidate and\ wait for next check};
+	\node[decision, right=22mm of pending] (consistent) {Consistent with\ previous candidate?};
+	\node[proc, below=of consistent] (retry) {Replace pending box and\ restart confirmation};
+	\node[decision, below=of retry] (enoughhits) {Enough repeated hits?};
+	\node[proc, left=22mm of enoughhits] (waitmore) {Keep pending box and\ output the reliable box};
+	\node[proc, right=22mm of enoughhits] (accept) {Accept recovery,\ reinitialize KCF,\ leave recovery mode};
+	\node[startstop, below=of enoughhits] (next) {Next frame};
 
-28:      if TLD tracker is not initialized then
-29:          initialize TLD tracker with last_bbox
-30:          mark current frame as recovery start
-31:          output last_bbox
-32:          continue
-33:      end if
-
-34:      if recovery duration exceeds maximum limit then
-35:          clear all recovery state
-36:          kcf_failure_streak <- 0
-37:          output last_bbox
-38:          continue
-39:      end if
-
-40:      if current frame is not a scheduled recovery frame then
-41:          output last_bbox
-42:          continue
-43:      end if
-
-44:      (success, Btld) <- TLD.update(Ft)
-45:      if success = false then
-46:          clear pending recovery candidate
-47:          output last_bbox
-48:          continue
-49:      end if
-
-50:      if IoU(Btld, last_bbox) < relocalization threshold then
-51:          clear pending recovery candidate
-52:          output last_bbox
-53:          continue
-54:      end if
-
-55:      if pending_recovery_bbox is null then
-56:          pending_recovery_bbox <- Btld
-57:          pending_recovery_hits <- 1
-58:          output last_bbox
-59:          continue
-60:      end if
-
-61:      if IoU(Btld, pending_recovery_bbox) < consistency threshold then
-62:          pending_recovery_bbox <- Btld
-63:          pending_recovery_hits <- 1
-64:          output last_bbox
-65:          continue
-66:      end if
-
-67:      pending_recovery_bbox <- Btld
-68:      pending_recovery_hits <- pending_recovery_hits + 1
-69:      if pending_recovery_hits < confirmation threshold then
-70:          output last_bbox
-71:          continue
-72:      end if
-
-73:      last_bbox <- Btld
-74:      reinitialize KCF tracker with (Ft, Btld)
-75:      clear all recovery state
-76:      kcf_failure_streak <- 0
-77:      output Btld
-78:  end for
-\end{lstlisting}
-
-\subsection{Implementation Excerpts}
-The following code fragments show the practical realisation of the failure test, recovery interval, and TLD confirmation logic.
-
-\begin{lstlisting}[language=MatlabCode,caption={Implementation excerpt: KCF unreliability test and TLD activation},label={lst:trigger-tld}]
-def _is_kcf_prediction_reliable(self, candidate_bbox):
-	if self.last_bbox is None:
-		return True
-
-	continuity_iou = bbox_iou(candidate_bbox, self.last_bbox)
-	area_ratio = bbox_area(candidate_bbox) / max(bbox_area(self.last_bbox), 1.0)
-	if continuity_iou >= self.unstable_continuity_iou_floor:
-		return True
-	if self.unstable_area_ratio_floor <= area_ratio <= self.unstable_area_ratio_ceiling:
-		return True
-	return False
-
-if self.kcf_failure_streak < self.tld_activation_failures:
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-if self.tld_tracker is None:
-	if not self._arm_tld(frame):
-		self.last_source = "TLD_INIT_FAIL"
-		return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-	self.last_source = "TLD_ARMED"
-	self.recovery_started_frame = self.frame_counter
-	self.last_recovery_attempt_frame = self.frame_counter
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-\end{lstlisting}
-
-\begin{lstlisting}[language=MatlabCode,caption={Implementation excerpt: recovery timeout and interval control},label={lst:recovery-timeout}]
-if self.recovery_started_frame is not None:
-	recovery_duration = self.frame_counter - self.recovery_started_frame
-	if recovery_duration >= self.recovery_max_frames:
-		self.last_source = "RECOVERY_TIMEOUT"
-		self.kcf_failure_streak = 0
-		self._clear_tld_state()
-		return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-if self.frame_counter - self.last_recovery_attempt_frame < self.recovery_update_interval_frames:
-	self.last_source = "WAIT_RECOVER"
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-\end{lstlisting}
-
-\begin{lstlisting}[language=MatlabCode,caption={Implementation excerpt: recovery candidate confirmation logic},label={lst:recovery-confirm}]
-recovered_bbox = self._probe_tld(frame, reference_bbox=self.last_bbox)
-
-if recovered_bbox is None:
-	self._clear_pending_recovery()
-	self.last_source = "LOST"
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-if self.pending_recovery_bbox is None:
-	self.pending_recovery_bbox = recovered_bbox
-	self.pending_recovery_hits = 1
-	self.last_source = "TLD_CANDIDATE"
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-consistency_iou = bbox_iou(recovered_bbox, self.pending_recovery_bbox)
-if consistency_iou < self.recovery_consistency_iou_floor:
-	self.pending_recovery_bbox = recovered_bbox
-	self.pending_recovery_hits = 1
-	self.last_source = "TLD_RETRY"
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-
-self.pending_recovery_bbox = recovered_bbox
-self.pending_recovery_hits += 1
-if self.pending_recovery_hits < self.recovery_confirmation_frames:
-	self.last_source = "TLD_CONFIRM"
-	return False, self.last_bbox if self.last_bbox is not None else (0, 0, 0, 0)
-\end{lstlisting}
+	\draw[line] (start) -- (updatetld);
+	\draw[line] (updatetld) -- (success);
+	\draw[line] (success) -- node[above] {No} (lost);
+	\draw[line] (lost) |- (next);
+	\draw[line] (success) -- node[above] {Yes} (ioucheck);
+	\draw[line] (ioucheck) -- node[right] {Yes} (plausible);
+	\draw[line] (ioucheck.west) -- ++(-10mm,0) |- node[pos=0.15,above] {No} (lost.east);
+	\draw[line] (plausible.west) -- ++(-10mm,0) |- node[pos=0.15,above] {No} (lost.east);
+	\draw[line] (plausible) -- node[right] {Yes} (pending);
+	\draw[line] (pending) -- node[above] {No} (storefirst);
+	\draw[line] (storefirst) |- (next);
+	\draw[line] (pending) -- node[above] {Yes} (consistent);
+	\draw[line] (consistent) -- node[right] {No} (retry);
+	\draw[line] (retry) -- (enoughhits);
+	\draw[line] (consistent) -- node[above] {Yes} (enoughhits);
+	\draw[line] (enoughhits) -- node[above] {No} (waitmore);
+	\draw[line] (waitmore) |- (next);
+	\draw[line] (enoughhits) -- node[above] {Yes} (accept);
+	\draw[line] (accept) |- (next);
+	\end{tikzpicture}
+	}
+	\caption{Detailed recovery decision flow for TLD candidate validation and KCF reinitialization.}
+	\label{fig:kcf-tld-recovery-flow}
+\end{figure}
+\clearpage
 
 \section{Results and Analysis}
 
 \subsection{Experimental Setup}
-The experimental evaluation reported here focuses on a directly comparable subset benchmark built from UAV123. The tested sequences are \emph{bike1} and \emph{bike3}. To control runtime during iterative development, the experiment uses a frame step of 2, a maximum of 800 frames per sequence, and a resized evaluation resolution of $480 \times 360$. The benchmark outputs aggregate overlap, localisation, stability, and efficiency indicators, along with diagnostic plots and a leaderboard image. In this validated run, the comparison is concentrated on KCF and the proposed KCF\textendash TLD method because that pair directly tests whether the auxiliary recovery branch improves over the KCF baseline under the same benchmark conditions.
+The experiments were carried out on a directly comparable subset derived from UAV123. The tested sequences are \emph{bike1} and \emph{bike3}. To keep iterative debugging and validation manageable, the benchmark uses a frame step of 2, a maximum of 800 frames per sequence, and a resized evaluation resolution of $480 \times 360$. The output includes IoU-related measures, localisation measures, stability indicators, efficiency indicators, diagnostic plots, and a leaderboard image.
+
+To address repeatability more directly, each of the four algorithms was run 3 times under exactly the same benchmark settings. Table~\ref{tab:aggregate-results} reports the arithmetic mean of the aggregate metrics across those 3 repetitions. The benchmark plots shown later come from the third repeated run, because the overlap and localisation curves were visually the same across repetitions while the enlarged output remained easier to read than the earlier cropped figures.
 
 \subsection{Per-Sequence Interpretation}
-On \emph{bike1}, the proposed hybrid method improves average IoU from 0.031499 to 0.051382 while reducing FPS from about 309 to 161. This suggests that the recovery branch contributes useful corrections in this sequence. On \emph{bike3}, meanwhile, average IoU remains the same as KCF at 0.067584, while FPS drops from about 337 to 15. This means that the hybrid logic doesn't help quality on every sequence, and in some cases the TLD branch adds heavy overhead without measurable localisation benefit.
+The two tested sequences reveal two different aspects of the present system. On \emph{bike1}, the proposed KCF\textendash TLD tracker does not improve over plain KCF under the current settings. In the representative third run, average IoU changes from 0.031499 for KCF to 0.030941 for KCF\textendash TLD, while FPS drops from 313.91 to 155.28. By contrast, CSRT remains much stronger on the same sequence with an average IoU of 0.517839, and standalone TLD reaches 0.233849 while running more slowly than KCF.
 
-From a research perspective, that's an important negative result rather than a failed experiment. It clarifies where the current bottleneck really is. The problem isn't the KCF path. It isn't even state switching by itself. The pressure comes mainly from the recovery branch.
+On \emph{bike3}, KCF\textendash TLD matches KCF in average IoU at 0.067584, but FPS goes from 343.46 to 15.07 for the same run. This indicates that if the recovery branch is running in a difficult sequence, the runtime may become large without obtaining a localisation gain. CSRT still leads this sequence in localisation quality with average IoU 0.135511, while standalone TLD drops to 0.004608 and does not compete as a primary tracker here.
 
-Recent runtime profiling supports that reading. The dominant cost on \emph{bike3} is not KCF update time, but the high per-call cost of OpenCV TLD updates. So, the proposed KCF\textendash TLD framework should be seen as a workable proof of complementary design rather than a fully optimised final system; it shows that role separation is feasible, yet it also shows that recovery efficiency remains the main obstacle to broader deployment.
+From the perspective of algorithm analysis, this contrast remains useful even though the hybrid does not win on the current subset. The main problem is not the existence of state switching itself, but the fact that the present recovery logic consumes substantial time while still failing to generate enough correct handovers. The current KCF\textendash TLD implementation should therefore be viewed as a prototype for recovery control rather than as a fully optimised final tracker.
 
 \subsection{Aggregate Comparison}
-Table~\ref{tab:aggregate-results} summarises the aggregate results of the most recent validated run. KCF\textendash TLD improves KCF in average IoU, overlap AUC, average centre error, centre precision, normalised precision, and tracking availability. But that gain is accompanied by a substantial drop in average FPS. The bottom line is that the hybrid method improves recovery-oriented quality, while it doesn't preserve KCF's raw speed.
+Table~\ref{tab:aggregate-results} condenses the 3-run average into one view. CSRT is clearly the strongest tracker on this subset in terms of localisation quality, while KCF remains the fastest. Standalone TLD sits between them: it is far slower than KCF, but its average IoU and precision values remain above the current KCF and KCF\textendash TLD implementations.
+
+The more important point for the proposed method is that the present KCF\textendash TLD configuration does not yet deliver a reliable net gain over plain KCF once the results are averaged across repeated runs. Average IoU drops slightly from 0.044169 to 0.043807, overlap AUC drops from 0.053110 to 0.052869, and centre precision remains unchanged at 0.111650. The only clear positive movement is tracking availability, which rises from 0.033981 to 0.050162. That increase indicates that the recovery branch can keep returning boxes more often, but the quality of those boxes is not yet strong enough to lift the main localisation metrics.
+
+The cost is just as clear in the same table. Average FPS falls from 322.815 to 106.218, so the hybrid gives up much of the speed that makes plain KCF attractive in the first place. For UAV tracking that reduction matters directly, because runtime is part of whether the tracker remains usable at all. The current version therefore increases recovery activity, but it does not yet convert that extra computation into better overall localisation.
 
 \begin{table}[htbp]
 	\centering
-	\caption{Aggregate benchmark results on the current UAV123 subset run}
+	\caption{Aggregate benchmark results on the current UAV123 subset, averaged across 3 repeated runs}
 	\label{tab:aggregate-results}
 	\resizebox{\textwidth}{!}{%
 	\begin{tabular}{@{}lccccccc@{}}
 		\toprule
 		Algorithm & Avg. IoU & AUC & Avg. CE & Prec.@20px & Norm. Prec. & Availability & Avg. FPS \\
 		\midrule
-		KCF & 0.044169 & 0.053110 & 83.531 & 0.111650 & 0.187702 & 0.033981 & 319.160 \\
-		KCF\textendash TLD & 0.057071 & 0.065750 & 68.171 & 0.142395 & 0.242718 & 0.050162 & 109.669 \\
+		KCF & 0.044169 & 0.053110 & 83.531 & 0.111650 & 0.187702 & 0.033981 & 322.815 \\
+		CSRT & 0.383591 & 0.386427 & 15.408 & 0.826861 & 0.872168 & 1.000000 & 85.539 \\
+		TLD & 0.153355 & 0.159489 & 107.963 & 0.289644 & 0.422330 & 1.000000 & 55.805 \\
+		KCF\textendash TLD & 0.043807 & 0.052869 & 98.853 & 0.111650 & 0.187702 & 0.050162 & 106.218 \\
 		\bottomrule
 	\end{tabular}%
 	}
 \end{table}
 
+The repeated runs also show that the present benchmark is numerically stable on this small subset. Across the 3 repetitions, the aggregate quality metrics reported above remained unchanged to 6 decimal places for all four algorithms, whereas the visible variation appeared mainly in runtime. Table~\ref{tab:repeatability} therefore reports only the standard deviation of average IoU and average FPS, which is enough to indicate the current level of repeatability without adding another large table.
+
+\begin{table}[htbp]
+	\centering
+	\caption{Repeatability summary across the 3 repeated runs}
+	\label{tab:repeatability}
+	\begin{tabular}{@{}lcc@{}}
+		\toprule
+		Algorithm & SD of Avg. IoU & SD of Avg. FPS \\
+		\midrule
+		KCF & 0.000000 & 1.317 \\
+		CSRT & 0.000000 & 0.920 \\
+		TLD & 0.000000 & 0.691 \\
+		KCF\textendash TLD & 0.000000 & 1.073 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
 \subsection{Benchmark Figures}
-Figures~\ref{fig:curves-paired}, \ref{fig:metrics-grid}, and \ref{fig:norm-leaderboard} present the cropped benchmark outputs from the latest validated run. All result images were trimmed and arranged in a two-column layout so that they fit the report more clearly.
+Figures~\ref{fig:curves-paired}, \ref{fig:metrics-grid-top}, \ref{fig:metrics-grid-bottom}, and \ref{fig:norm-leaderboard} are representative results of the third consecutive four-algorithm run. The result images were enlarged from the previous version so that the axis labels and legend text could be read.
+
+Their function is analytical rather than decorative. The overlap and precision curves show that the four algorithms differ across a range of thresholds rather than at one convenient operating point. The grouped metric panels separate overlap quality, localisation accuracy, stability, and efficiency, making the trade-off easier to read than in the same large-scale table. The leaderboard image shows the same comparison in compressed format.
 
 \begin{figure}[htbp]
 	\centering
-	\begin{subfigure}[t]{0.48\textwidth}
+	\begin{subfigure}[t]{0.82\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{result_overlap_curve_cropped.png}
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/overlap_curve.png}
 		\caption{Overlap recall curve}
-	\end{subfigure}
-	\hfill
-	\begin{subfigure}[t]{0.48\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{result_center_precision_curve_cropped.png}
-		\caption{Center precision curve}
-	\end{subfigure}
-	\caption{Paired benchmark curves for the current KCF versus KCF\textendash TLD comparison.}
-	\label{fig:curves-paired}
-\end{figure}
-
-\begin{figure}[htbp]
-	\centering
-	\begin{subfigure}[t]{0.48\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{result_overlap_metrics_cropped.png}
-		\caption{Overlap quality metrics}
-	\end{subfigure}
-	\hfill
-	\begin{subfigure}[t]{0.48\textwidth}
-		\centering
-		\includegraphics[width=\textwidth]{result_localization_metrics_cropped.png}
-		\caption{Localization accuracy metrics}
 	\end{subfigure}
 
 	\vspace{0.8em}
 
-	\begin{subfigure}[t]{0.48\textwidth}
+	\begin{subfigure}[t]{0.82\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{result_stability_metrics_cropped.png}
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/center_precision_curve.png}
+		\caption{Center precision curve}
+	\end{subfigure}
+	\caption{Representative overlap and center-precision curves from the third repeated four-algorithm benchmark run.}
+	\label{fig:curves-paired}
+\end{figure}
+
+\begin{landscape}
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}[t]{0.46\linewidth}
+		\centering
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/overlap_metrics.png}
+		\caption{Overlap quality metrics}
+	\end{subfigure}
+	\hfill
+	\begin{subfigure}[t]{0.46\linewidth}
+		\centering
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/localization_metrics.png}
+		\caption{Localization accuracy metrics}
+	\end{subfigure}
+	\caption{Enlarged overlap and localization panels from the third repeated run.}
+	\label{fig:metrics-grid-top}
+\end{figure}
+\end{landscape}
+
+\begin{landscape}
+\begin{figure}[p]
+	\centering
+	\begin{subfigure}[t]{0.46\linewidth}
+		\centering
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/stability_metrics.png}
 		\caption{Tracking stability metrics}
 	\end{subfigure}
 	\hfill
-	\begin{subfigure}[t]{0.48\textwidth}
+	\begin{subfigure}[t]{0.46\linewidth}
 		\centering
-		\includegraphics[width=\textwidth]{result_efficiency_metrics_cropped.png}
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/efficiency_metrics.png}
 		\caption{Computational efficiency metrics}
 	\end{subfigure}
-	\caption{Grouped benchmark metrics in a two-row layout. These panels correspond to the four evaluation categories used in the benchmark pipeline.}
-	\label{fig:metrics-grid}
+	\caption{Enlarged stability and efficiency panels from the third repeated run.}
+	\label{fig:metrics-grid-bottom}
 \end{figure}
+\end{landscape}
+
+\begin{figure}[htbp]
+	\centering
+	\begin{subfigure}[t]{0.82\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/normalized_precision_curve.png}
+		\caption{Normalized precision curve}
+	\end{subfigure}
+
+	\vspace{0.8em}
+
+	\begin{subfigure}[t]{0.82\textwidth}
+		\centering
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/leaderboard.png}
+		\caption{Benchmark leaderboard}
+	\end{subfigure}
+	\caption{Additional representative outputs showing normalized precision and the aggregate leaderboard for the third repeated run.}
+	\label{fig:norm-leaderboard}
+\end{figure}
+
+The figures point to the same pattern shown in the table. CSRT dominates the localisation-oriented panels, KCF dominates raw speed, and the present KCF\textendash TLD tracker does not separate clearly from KCF on the quality curves even though it pays a visible efficiency penalty.
+
+\section{Discussion}
+The repeated experiments clarify the current position of KCF\textendash TLD more precisely. At the present testing stage, KCF\textendash TLD is weaker than CSRT in tracking accuracy, weaker than KCF in efficiency, and only slightly better than KCF in tracking availability. That means the current hybrid does not yet justify itself as a general-purpose improvement over the original tracker. The design idea is still meaningful, but the present recovery thresholds and confirmation logic are not sufficient to turn that idea into a competitive result.
 
 \begin{figure}[htbp]
 	\centering
 	\begin{subfigure}[t]{0.48\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{result_normalized_precision_curve_cropped.png}
-		\caption{Normalized precision curve}
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/localization_metrics.png}
+		\caption{Localization comparison in the third repeated four-algorithm run}
 	\end{subfigure}
 	\hfill
 	\begin{subfigure}[t]{0.48\textwidth}
 		\centering
-		\includegraphics[width=\textwidth]{result_leaderboard_cropped.png}
-		\caption{Benchmark leaderboard}
+		\includegraphics[width=\textwidth]{../benchmark_runs/benchmark_20260501_182119/efficiency_metrics.png}
+		\caption{Efficiency comparison in the third repeated four-algorithm run}
 	\end{subfigure}
-	\caption{Additional benchmark outputs showing normalized precision and the aggregate leaderboard.}
-	\label{fig:norm-leaderboard}
+	\caption{Representative localisation and efficiency panels from the third repeated run. CSRT remains strongest in localisation quality, whereas KCF remains the fastest method.}
+	\label{fig:csrt-vs-kcftld-direct}
 \end{figure}
 
-\section{Discussion}
-At the same time, the current method still has several important limitations. The first is structural: since the normal stage is still dominated by KCF, the system's upper bound remains strongly constrained by KCF itself. If KCF drifts in a way that isn't fully captured by the heuristic reliability tests, the recovery branch may still be activated too late --- or it may be activated using an already degraded reference box. The second limitation is the trigger logic. It relies on hand-crafted geometric thresholds, which are easy to implement but may not distinguish harmless short-term fluctuation from genuine failure in complex UAV scenes. The third limitation is efficiency. The latest profiling results show that the major slowdown in difficult sequences is caused by the TLD branch itself rather than by the KCF path or by state switching overhead. So, simply adjusting thresholds won't fundamentally solve the efficiency problem.
+The main advantage of the proposed method is that its design logic is easy to explain and closely tied to the strengths of the source algorithms. KCF is responsible for high-speed short-term tracking, while TLD is responsible for relocalization after failure. The two modules do not compete for the same task. Instead, they are assigned different functions. This still makes the hybrid easier to interpret and tune in engineering terms than a more opaque end-to-end design.
 
-The experimental evidence still supports a clear interpretation of the algorithms discussed here. KCF remains attractive because its computational pathway is simple and well suited to short-term local tracking. CSRT extends the same family of ideas and usually gives better box quality plus stronger robustness, but at a heavier computational cost. TLD contributes something different --- not necessarily better frame-by-frame localisation, but a stronger conceptual answer to long-term failure. Interestingly, that's exactly why TLD is better treated as a recovery-oriented component than as a permanently active high-speed tracker.
+Relative to pure KCF, the hybrid also adds a more cautious protection mechanism. TLD is not triggered by one doubtful frame, and a recovery candidate is not accepted after one successful update. The recovery box must pass candidate filtering, consistency checking, and repeated confirmation before it is used to reinitialize KCF. These steps help reduce the chance of incorrect recovery in principle, but the present results suggest that the accepted recoveries are still too sparse or too weak to compensate for the extra runtime cost.
 
-The proposed KCF\textendash TLD method inherits both the strengths and the weaknesses of that division of labour. Its strengths are fairly clear, though not perfectly balanced. First, the system logic is easy to interpret: KCF handles fast tracking, while TLD is reserved for recovery. Second, the method adds explicit protection against erroneous recovery through several gates --- activation thresholds, geometric continuity tests, consistency checks, and a lightweight plausibility filter. Third, the implementation is clearly aware of efficiency, since interval control and recovery timeout stop the system from remaining in a permanently slow state.
-
-These observations also suggest the most reasonable future directions. One direction is to improve the trigger mechanism by combining motion continuity, short-term response stability, and trajectory history so that the system can decide more intelligently when recovery is truly needed. Another direction is to improve recovery validation through higher-level information. Instead of relying only on overlap and scale consistency, future work could use stronger appearance cues, temporal trend modelling, or multimodal reasoning to judge whether a candidate is really compatible with recent target behaviour. If those mechanisms are introduced carefully, the hybrid design could become more adaptive without losing interpretability.
+At the same time, the current method still has several clear limitations. First, the overall upper bound of the system is still strongly influenced by KCF, because ordinary tracking depends on KCF for most frames. Second, the failure judgment mechanism is based mainly on heuristic rules such as overlap, area change, and repeated failure. These rules are simple and interpretable, but their adaptability remains limited in scenes involving long occlusion, strong clutter, rapid motion, or strong non-linear change. Third, the recovery ability of TLD is not always stable, and the geometric constraints used here may also reduce the chance of successful recovery in large-range search situations. A further caution is that some stability-style indicators, especially tracking availability for standalone TLD, can look better than the actual localisation quality because the detector may keep outputting boxes even when those boxes are not accurate.
 
 \section{Conclusion}
-This paper has presented an English analysis of three classical discriminative UAV trackers: KCF, CSRT, and TLD. It has also introduced a hybrid KCF\textendash TLD relocalization strategy. The comparison shows that the three methods differ not only in implementation detail, but also in tracking philosophy. KCF prioritises speed. CSRT prioritises robustness through reliability modelling. TLD prioritises long-term recovery through explicit detection and online learning. All in all, these differences explain why no single classical tracker can simultaneously optimise real-time throughput, localisation quality, and failure recovery.
+This paper examined KCF, CSRT, and TLD as three representative discriminative tracking algorithms for UAV-style visual tracking tasks, and compared them from the perspective of principle, behaviour, and practical use. The comparison shows that KCF is attractive because of its very high speed, CSRT is stronger in localisation reliability and robustness, and TLD is more valuable in the stage after failure because of its explicit redetection ability. These differences explain why no single one of the three methods can easily satisfy speed, accuracy, and recovery at the same time.
 
-To address that gap, the proposed KCF\textendash TLD method assigns different responsibilities to two complementary trackers. KCF is used during the normal stage to preserve high-speed tracking, while TLD is triggered only after KCF becomes unreliable or loses the target. The method then applies interval control, timeout protection, overlap constraints, consistency confirmation, and plausibility filtering before accepting a recovery. In the current benchmark subset, this design improves KCF in average IoU, overlap AUC, centre precision, and tracking availability, which confirms that the role-based combination is meaningful. But the experiments also show a major practical limitation: the TLD recovery branch can impose severe runtime overhead on difficult sequences, so the current system can't yet preserve KCF's raw FPS advantage.
+On that basis, the paper proposed a KCF\textendash TLD hybrid tracker. The method uses KCF to preserve high-speed tracking during the normal stage, and activates TLD only when KCF becomes unstable or loses the target. A multi-frame confirmation mechanism is then used to make the accepted recovery box more reliable before KCF is reinitialized. The repeated experiments show that this ``high-speed main tracker plus auxiliary recovery module'' design is implementable, but the present configuration does not yet improve the main localisation metrics relative to pure KCF once the results are averaged across 3 runs. Its current effect is closer to a limited increase in recovery activity than to a finished accuracy improvement.
 
-Overall, the proposed method verifies the feasibility of the ``high-speed main tracker plus auxiliary recovery module'' idea, but it should still be seen as an intermediate design rather than a fully mature final solution. Future work should focus on more intelligent recovery triggering, more adaptive validation of recovery candidates, and more efficient long-term relocalization modules. Surprisingly, the present results make that future path clearer rather than less clear, because they show exactly where the system still breaks down.
+That result should be read as a prototype outcome, not as a finished tracker. The current system still leans on heuristic thresholds and hand-crafted recovery decisions, and those choices limit its behaviour in harder UAV sequences. The next improvement is not to add complexity everywhere, but to make the recovery decision itself better informed. Better state assessment, stronger modelling of motion continuity and appearance consistency, and wider scene context are the most direct places to test. If those parts improve, the tracker should be judged again on whether it can recover more reliably without losing too much of the speed that motivated the hybrid in the first place.
 
 \printbibliography[title={References}]
 

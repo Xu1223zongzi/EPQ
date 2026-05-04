@@ -1,0 +1,3 @@
+﻿algorithm,sequence_count,total_frames,average_iou,overlap_auc,average_center_error,median_center_error,overlap_recall_iou_0_5,overlap_recall_iou_0_75,center_precision_20px,normalized_precision_0_05,tracking_availability,failure_frame_ratio,longest_failure_streak_ratio,average_fps
+CSRT,2,1760,0.477054,0.47779,9.502455,6.580422,0.564773,0.102841,0.934659,0.955114,1.0,0.0,0.0,35.552148
+KCF_TLD,2,1760,0.052012,0.060599,92.977984,78.725637,0.025,0.010227,0.105682,0.214205,0.067045,0.932955,0.417045,137.372836
